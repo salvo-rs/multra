@@ -86,6 +86,19 @@ async fn test_multipart_transport_padding() {
 }
 
 #[tokio::test]
+async fn test_multipart_content_disposition_compatibility() {
+    let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; NAME=\"my_file_field\"; FILENAME=\"fallback.txt\"; FILENAME*=UTF-8''%E4%BD%A0%E5%A5%BD.txt\r\nContent-Type: text/plain\r\n\r\nhello\r\n--X-BOUNDARY--\r\n";
+    let stream = str_stream(data);
+    let mut m = Multipart::new(stream, "X-BOUNDARY");
+
+    let field = m.next_field().await.unwrap().unwrap();
+    assert_eq!(field.name(), Some("my_file_field"));
+    assert_eq!(field.file_name(), Some("你好.txt"));
+    assert_eq!(field.content_type(), Some(&mime::TEXT_PLAIN));
+    assert_eq!(field.text().await, Ok("hello".to_owned()));
+}
+
+#[tokio::test]
 async fn test_multipart_header() {
     let should_pass = [
         "ignored header\r\n--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY--\r\n",
