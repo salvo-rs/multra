@@ -105,9 +105,9 @@
 //!
 //! ## Usage with [hyper.rs](https://hyper.rs/) server
 //!
-//! An [example](https://github.com/rousan/multer-rs/blob/master/examples/hyper_server_example.rs) showing usage with [hyper.rs](https://hyper.rs/).
+//! An [example](https://github.com/salvo-rs/multra/blob/master/examples/hyper_server_example.rs) showing usage with [hyper.rs](https://hyper.rs/).
 //!
-//! For more examples, please visit [examples](https://github.com/rousan/multer-rs/tree/master/examples).
+//! For more examples, please visit [examples](https://github.com/salvo-rs/multra/tree/master/examples).
 
 #![forbid(unsafe_code)]
 #![warn(

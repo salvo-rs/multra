@@ -38,7 +38,7 @@ checklist:
   - name: Edit tag on Github
     type: manual
     instructions:
-      - Tag is pushed to Github(https://github.com/rousan/multer-rs/releases). Edit it there and make it a release.
+      - Tag is pushed to Github(https://github.com/salvo-rs/multra/releases). Edit it there and make it a release.
   - name: Publish to crates.io
     type: auto
     confirm: Are you sure to publish it to crates.io?

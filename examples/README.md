@@ -1,8 +1,8 @@
-# Examples of using multer-rs
+# Examples of using multra
 
-These examples show of how to do common tasks using `multer-rs`.
+These examples show of how to do common tasks using `multra`.
 
-Please visit: [Docs](https://docs.rs/multer) for the documentation.
+Please visit: [Docs](https://docs.rs/multra) for the documentation.
 
 Run an example:
 
