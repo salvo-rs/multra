@@ -39,6 +39,9 @@ pub enum Error {
     /// The incoming stream size exceeded the maximum limit.
     StreamSizeExceeded { limit: u64 },
 
+    /// The incoming field headers exceeded the maximum limit.
+    HeadersSizeExceeded { limit: u64 },
+
     /// Stream read failed.
     StreamReadFailed(BoxError),
 
@@ -94,6 +97,9 @@ impl Display for Error {
             Error::StreamSizeExceeded { limit } => {
                 write!(f, "stream size exceeded limit: {} bytes", limit)
             }
+            Error::HeadersSizeExceeded { limit } => {
+                write!(f, "field headers exceeded limit: {} bytes", limit)
+            }
             Error::ReadHeaderFailed(_) => write!(f, "failed to read headers"),
             Error::StreamReadFailed(_) => write!(f, "failed to read stream"),
             Error::DecodeContentType(_) => write!(f, "failed to decode Content-Type"),
@@ -124,6 +130,7 @@ impl std::error::Error for Error {
             | Error::IncompleteStream
             | Error::FieldSizeExceeded { .. }
             | Error::StreamSizeExceeded { .. }
+            | Error::HeadersSizeExceeded { .. }
             | Error::LockFailure
             | Error::NoMultipart
             | Error::NoBoundary => None,
