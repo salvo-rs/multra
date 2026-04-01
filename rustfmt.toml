@@ -1,10 +1,16 @@
-max_width = 120
-tab_spaces = 4
+style_edition = "2024"
+unstable_features = true
+
+comment_width = 120
 wrap_comments = true
-condense_wildcard_suffixes = true
 format_code_in_doc_comments = true
-newline_style = "Unix"
+format_macro_bodies = true
+format_macro_matchers = true
 normalize_comments = true
-reorder_impl_items = true
-group_imports = "StdExternalCrate"
+normalize_doc_attributes = true
+condense_wildcard_suffixes = true
+newline_style = "Unix"
 use_field_init_shorthand = true
+use_try_shorthand = true
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"

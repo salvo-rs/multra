@@ -12,7 +12,7 @@ use spin::mutex::spin::SpinMutex as Mutex;
 
 use crate::content_disposition::ContentDisposition;
 use crate::multipart::{MultipartState, StreamingStage};
-use crate::{helpers, Error};
+use crate::{Error, helpers};
 
 /// A single field in a multipart stream.
 ///

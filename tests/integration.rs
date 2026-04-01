@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use futures_util::{stream, Stream};
+use futures_util::{Stream, stream};
 use multer::{Constraints, Multipart, SizeLimit};
 
 fn str_stream(string: &'static str) -> impl Stream<Item = multer::Result<Bytes>> {
@@ -31,7 +31,10 @@ async fn test_multipart_basic() {
             assert_eq!(field.content_type(), Some(&mime::TEXT_PLAIN));
             assert_eq!(field.index(), 1);
 
-            assert_eq!(field.text().await, Ok("Hello world\nHello\r\nWorld\rAgain".to_owned()));
+            assert_eq!(
+                field.text().await,
+                Ok("Hello world\nHello\r\nWorld\rAgain".to_owned())
+            );
         }
     }
 }

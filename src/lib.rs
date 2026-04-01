@@ -13,9 +13,9 @@
 //! use std::convert::Infallible;
 //!
 //! use bytes::Bytes;
+//! use futures_util::stream::Stream;
 //! // Import multer types.
 //! use futures_util::stream::once;
-//! use futures_util::stream::Stream;
 //! use multer::Multipart;
 //!
 //! #[tokio::main]
@@ -46,8 +46,8 @@
 //! }
 //!
 //! // Generate a byte stream and the boundary from somewhere e.g. server request body.
-//! async fn get_byte_stream_from_somewhere(
-//! ) -> (impl Stream<Item = Result<Bytes, Infallible>>, &'static str) {
+//! async fn get_byte_stream_from_somewhere()
+//! -> (impl Stream<Item = Result<Bytes, Infallible>>, &'static str) {
 //!     let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; \
 //!         name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY--\r\n";
 //!

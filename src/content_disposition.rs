@@ -10,7 +10,9 @@ pub(crate) struct ContentDisposition {
 
 impl ContentDisposition {
     pub fn parse(headers: &HeaderMap) -> ContentDisposition {
-        let content_disposition = headers.get(header::CONTENT_DISPOSITION).map(|val| val.as_bytes());
+        let content_disposition = headers
+            .get(header::CONTENT_DISPOSITION)
+            .map(|val| val.as_bytes());
 
         let field_name = content_disposition
             .and_then(|val| ContentDispositionAttr::Name.extract_from(val))
@@ -20,6 +22,9 @@ impl ContentDisposition {
             .and_then(|val| ContentDispositionAttr::FileName.extract_from(val))
             .map(|attr| attr.into_owned());
 
-        ContentDisposition { field_name, file_name }
+        ContentDisposition {
+            field_name,
+            file_name,
+        }
     }
 }
