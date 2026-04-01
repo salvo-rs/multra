@@ -4,11 +4,9 @@ use std::net::SocketAddr;
 use bytes::Bytes;
 use futures_util::StreamExt;
 use http_body_util::{BodyStream, Full};
-use hyper::body::Incoming;
-use hyper::header::CONTENT_TYPE;
-use hyper::{Request, Response, StatusCode};
-// Import the multer types.
-use multer::Multipart;
+use hyper::{Request, Response, StatusCode, body::Incoming, header::CONTENT_TYPE};
+// Import the multra types.
+use multra::Multipart;
 
 // A handler for incoming requests.
 async fn handle(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
@@ -17,7 +15,7 @@ async fn handle(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infalli
         .headers()
         .get(CONTENT_TYPE)
         .and_then(|ct| ct.to_str().ok())
-        .and_then(|ct| multer::parse_boundary(ct).ok());
+        .and_then(|ct| multra::parse_boundary(ct).ok());
 
     // Send `BAD_REQUEST` status if the content-type is not multipart/form-data.
     if boundary.is_none() {
@@ -39,7 +37,7 @@ async fn handle(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infalli
 }
 
 // Process the request body as multipart/form-data.
-async fn process_multipart(body: Incoming, boundary: String) -> multer::Result<()> {
+async fn process_multipart(body: Incoming, boundary: String) -> multra::Result<()> {
     // Convert the body into a stream of data frames.
     let body_stream = BodyStream::new(body)
         .filter_map(|result| async move { result.map(|frame| frame.into_data().ok()).transpose() });

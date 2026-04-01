@@ -12,7 +12,7 @@ use crate::size_limit::SizeLimit;
 /// # Examples
 ///
 /// ```
-/// use multer::{Multipart, Constraints, SizeLimit};
+/// use multra::{Multipart, Constraints, SizeLimit};
 /// # use bytes::Bytes;
 /// # use std::convert::Infallible;
 /// # use futures_util::stream::once;

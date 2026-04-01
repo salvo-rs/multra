@@ -10,7 +10,7 @@ Run an example:
  cargo run --example example_name
 ```
 
-* [`simple_example`](simple_example.rs) - A basic example using `multer`.
+* [`simple_example`](simple_example.rs) - A basic example using `multra`.
 
 * [`hyper_server_example`](hyper_server_example.rs) - Shows how to use this crate with Rust HTTP server [hyper](https://hyper.rs/).
 

@@ -32,7 +32,7 @@ use crate::{Error, helpers};
 ///
 /// use bytes::Bytes;
 /// use futures_util::stream::once;
-/// use multer::Multipart;
+/// use multra::Multipart;
 ///
 /// # async fn run() {
 /// let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; \
@@ -107,7 +107,7 @@ impl<'r> Field<'r> {
     ///
     /// use bytes::Bytes;
     /// use futures_util::stream::once;
-    /// use multer::Multipart;
+    /// use multra::Multipart;
     ///
     /// # async fn run() {
     /// let data =
@@ -144,7 +144,7 @@ impl<'r> Field<'r> {
     ///
     /// use bytes::Bytes;
     /// use futures_util::stream::once;
-    /// use multer::Multipart;
+    /// use multra::Multipart;
     ///
     /// # async fn run() {
     /// let data =
@@ -173,7 +173,7 @@ impl<'r> Field<'r> {
     /// # Examples
     ///
     /// ```
-    /// use multer::Multipart;
+    /// use multra::Multipart;
     /// use bytes::Bytes;
     /// use std::convert::Infallible;
     /// use futures_util::stream::once;
@@ -223,7 +223,7 @@ impl<'r> Field<'r> {
     ///
     /// use bytes::Bytes;
     /// use futures_util::stream::once;
-    /// use multer::Multipart;
+    /// use multra::Multipart;
     ///
     /// # async fn run() {
     /// let data =
@@ -258,7 +258,7 @@ impl<'r> Field<'r> {
     ///
     /// use bytes::Bytes;
     /// use futures_util::stream::once;
-    /// use multer::Multipart;
+    /// use multra::Multipart;
     ///
     /// # async fn run() {
     /// let data =
@@ -294,7 +294,7 @@ impl<'r> Field<'r> {
     ///
     /// use bytes::Bytes;
     /// use futures_util::stream::once;
-    /// use multer::Multipart;
+    /// use multra::Multipart;
     ///
     /// # async fn run() {
     /// let data =

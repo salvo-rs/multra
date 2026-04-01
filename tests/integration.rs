@@ -1,8 +1,14 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+use std::task::Poll;
+
 use bytes::Bytes;
 use futures_util::{Stream, stream};
-use multer::{Constraints, Multipart, SizeLimit};
+use multra::{Constraints, Multipart, SizeLimit};
 
-fn str_stream(string: &'static str) -> impl Stream<Item = multer::Result<Bytes>> {
+fn str_stream(string: &'static str) -> impl Stream<Item = multra::Result<Bytes>> {
     stream::iter(
         string
             .chars()
@@ -266,6 +272,34 @@ async fn test_multiaccess_caught() {
     let field1 = m.next_field().await;
     let field2 = m.next_field().await;
 
-    assert!(matches!(field2.unwrap_err(), multer::Error::LockFailure));
+    assert!(matches!(field2.unwrap_err(), multra::Error::LockFailure));
     assert!(field1.is_ok());
+}
+
+#[tokio::test]
+async fn test_first_field_is_emitted_without_buffering_full_stream() {
+    let polls = Arc::new(AtomicUsize::new(0));
+    let poll_count = polls.clone();
+    let stream = stream::poll_fn(move |_cx| {
+        let item = match poll_count.fetch_add(1, Ordering::SeqCst) {
+            0 => Some(Ok::<Bytes, multra::Error>(Bytes::from_static(
+                b"--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\n",
+            ))),
+            1 => Some(Ok::<Bytes, multra::Error>(Bytes::from_static(
+                b"abcd\r\n--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_file_field\"\r\n\r\n",
+            ))),
+            2 => Some(Ok::<Bytes, multra::Error>(Bytes::from_static(
+                b"efgh\r\n--X-BOUNDARY--\r\n",
+            ))),
+            _ => None,
+        };
+
+        Poll::Ready(item)
+    });
+
+    let mut multipart = Multipart::new(stream, "X-BOUNDARY");
+    let field = multipart.next_field().await.unwrap().unwrap();
+
+    assert_eq!(field.name(), Some("my_text_field"));
+    assert_eq!(polls.load(Ordering::SeqCst), 1);
 }

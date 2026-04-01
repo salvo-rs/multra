@@ -13,10 +13,10 @@
 //! use std::convert::Infallible;
 //!
 //! use bytes::Bytes;
-//! use futures_util::stream::Stream;
-//! // Import multer types.
+//! // Import multra types.
 //! use futures_util::stream::once;
-//! use multer::Multipart;
+//! use futures_util::stream::Stream;
+//! use multra::Multipart;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -66,7 +66,7 @@
 //! An example:
 //!
 //! ```
-//! use multer::{Constraints, Multipart, SizeLimit};
+//! use multra::{Constraints, Multipart, SizeLimit};
 //! # use bytes::Bytes;
 //! # use std::convert::Infallible;
 //! # use futures_util::stream::once;
@@ -147,7 +147,7 @@ mod helpers;
 mod multipart;
 mod size_limit;
 
-/// A Result type often returned from methods that can have `multer` errors.
+/// A Result type often returned from methods that can have `multra` errors.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Parses the `Content-Type` header to extract the boundary value.
@@ -159,7 +159,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// let content_type = "multipart/form-data; boundary=ABCDEFG";
 ///
 /// assert_eq!(
-///     multer::parse_boundary(content_type),
+///     multra::parse_boundary(content_type),
 ///     Ok("ABCDEFG".to_owned())
 /// );
 /// # }

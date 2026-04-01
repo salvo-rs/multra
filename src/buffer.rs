@@ -45,7 +45,13 @@ impl<'r> StreamBuffer<'r> {
                         });
                     }
 
-                    self.buf.extend_from_slice(&data)
+                    if data.is_empty() {
+                        continue;
+                    }
+
+                    self.buf.extend_from_slice(&data);
+                    cx.waker().wake_by_ref();
+                    return Ok(());
                 }
                 Poll::Ready(Some(Err(err))) => return Err(err),
                 Poll::Ready(None) => {
@@ -128,11 +134,7 @@ impl<'r> StreamBuffer<'r> {
             None => {
                 let buf_len = self.buf.len();
                 let rem_boundary_part_max_len = b_len - 1;
-                let rem_boundary_part_idx = if buf_len >= rem_boundary_part_max_len {
-                    buf_len - rem_boundary_part_max_len
-                } else {
-                    0
-                };
+                let rem_boundary_part_idx = buf_len.saturating_sub(rem_boundary_part_max_len);
 
                 trace!("no new field found, not EOF, checking close");
                 let bytes = &self.buf[rem_boundary_part_idx..];

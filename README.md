@@ -26,8 +26,8 @@ multra = "3.1"
 ```rust
 use bytes::Bytes;
 use futures::stream::Stream;
-// Import multer types.
-use multer::Multipart;
+// Import multra types.
+use multra::Multipart;
 use std::convert::Infallible;
 use futures::stream::once;
 
@@ -75,7 +75,7 @@ on field (specially text field) size to prevent DoS attacks exhausting the serve
 An example:
 
 ```rust
-use multer::{Multipart, Constraints, SizeLimit};
+use multra::{Constraints, Multipart, SizeLimit};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -44,7 +44,7 @@ impl SizeLimit {
 
     pub(crate) fn extract_size_limit_for(&self, field: Option<&str>) -> u64 {
         field
-            .and_then(|field| self.field_map.get(&field.to_owned()))
+            .and_then(|field| self.field_map.get(field))
             .copied()
             .unwrap_or(self.per_field)
     }

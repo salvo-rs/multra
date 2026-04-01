@@ -32,7 +32,7 @@ use crate::{Result, constants, helpers};
 ///
 /// use bytes::Bytes;
 /// use futures_util::stream::once;
-/// use multer::Multipart;
+/// use multra::Multipart;
 ///
 /// # async fn run() {
 /// let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; \
@@ -56,7 +56,7 @@ use crate::{Result, constants, helpers};
 ///
 /// use bytes::Bytes;
 /// use futures_util::stream::once;
-/// use multer::Multipart;
+/// use multra::Multipart;
 ///
 /// # async fn run() {
 /// let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; \
@@ -149,7 +149,7 @@ impl<'r> Multipart<'r> {
     /// # Examples
     ///
     /// ```
-    /// use multer::Multipart;
+    /// use multra::Multipart;
     ///
     /// # async fn run() {
     /// let data =
@@ -186,7 +186,7 @@ impl<'r> Multipart<'r> {
     /// # Examples
     ///
     /// ```
-    /// use multer::Multipart;
+    /// use multra::Multipart;
     ///
     /// # async fn run() {
     /// let data =
@@ -445,7 +445,7 @@ impl<'r> Multipart<'r> {
     ///
     /// use bytes::Bytes;
     /// use futures_util::stream::once;
-    /// use multer::Multipart;
+    /// use multra::Multipart;
     ///
     /// # async fn run() {
     /// let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; \
