@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::size_limit::SizeLimit;
 
 /// Represents some rules to be applied on the stream and field's content size
@@ -48,7 +50,7 @@ use crate::size_limit::SizeLimit;
 #[derive(Debug, Default)]
 pub struct Constraints {
     pub(crate) size_limit: SizeLimit,
-    pub(crate) allowed_fields: Option<Vec<String>>,
+    pub(crate) allowed_fields: Option<HashSet<String>>,
 }
 
 impl Constraints {
@@ -78,9 +80,7 @@ impl Constraints {
 
     pub(crate) fn is_it_allowed(&self, field: Option<&str>) -> bool {
         if let Some(ref allowed_fields) = self.allowed_fields {
-            field
-                .map(|field| allowed_fields.iter().any(|item| item == field))
-                .unwrap_or(false)
+            field.map(|field| allowed_fields.contains(field)).unwrap_or(false)
         } else {
             true
         }
