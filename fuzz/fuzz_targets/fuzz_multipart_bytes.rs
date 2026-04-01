@@ -3,10 +3,10 @@
 use std::convert::Infallible;
 use std::time::Duration;
 
-use multer::Multipart;
-use multer::bytes::Bytes;
 use futures_util::stream::once;
 use libfuzzer_sys::fuzz_target;
+use multra::Multipart;
+use multra::bytes::Bytes;
 use tokio::{runtime, time::timeout};
 
 const FIELD_TIMEOUT: Duration = Duration::from_millis(10);
