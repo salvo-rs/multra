@@ -204,7 +204,6 @@ impl<'r> Field<'r> {
     /// or it cannot be properly deserialized to target type `T`. For more
     /// details please see [`serde_json::from_slice`].
     #[cfg(feature = "json")]
-    #[cfg_attr(nightly, doc(cfg(feature = "json")))]
     pub async fn json<T: DeserializeOwned>(self) -> crate::Result<T> {
         serde_json::from_slice(&self.bytes().await?).map_err(Error::DecodeJson)
     }

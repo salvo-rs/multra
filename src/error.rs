@@ -57,7 +57,6 @@ pub enum Error {
     /// Failed to decode the field data as `JSON` in
     /// [`field.json()`](crate::Field::json) method.
     #[cfg(feature = "json")]
-    #[cfg_attr(nightly, doc(cfg(feature = "json")))]
     DecodeJson(serde_json::Error),
 }
 

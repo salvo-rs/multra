@@ -166,7 +166,6 @@ impl<'r> Multipart<'r> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run());
     /// ```
     #[cfg(feature = "tokio-io")]
-    #[cfg_attr(nightly, doc(cfg(feature = "tokio-io")))]
     pub fn with_reader<R, B>(reader: R, boundary: B) -> Self
     where
         R: AsyncRead + Unpin + Send + 'r,
@@ -203,7 +202,6 @@ impl<'r> Multipart<'r> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run());
     /// ```
     #[cfg(feature = "tokio-io")]
-    #[cfg_attr(nightly, doc(cfg(feature = "tokio-io")))]
     pub fn with_reader_with_constraints<R, B>(
         reader: R,
         boundary: B,

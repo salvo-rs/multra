@@ -17,20 +17,15 @@ env:
 jobs:
   build_and_test:
     name: Build and test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest]
-        rust: [stable, nightly]
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install ${{ matrix.rust }}
+    - name: Install stable
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: ${{ matrix.rust }}
+        toolchain: stable
 
     - name: check
       run: cargo check --all --bins --examples --all-features

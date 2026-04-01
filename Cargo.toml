@@ -48,9 +48,6 @@ hyper = { version = "1.9", features = ["server", "http1"] }
 http-body-util = "0.1.3"
 hyper-util = { version = "0.1.20", features = ["full"] }
 
-[build-dependencies]
-version_check = "0.9.5"
-
 [[example]]
 name = "parse_async_read"
 path = "examples/parse_async_read.rs"

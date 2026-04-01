@@ -116,7 +116,6 @@
     trivial_casts,
     unused_qualifications
 )]
-#![cfg_attr(nightly, feature(doc_cfg))]
 #![doc(test(attr(deny(rust_2018_idioms, warnings))))]
 #![doc(test(attr(allow(unused_extern_crates, unused_variables))))]
 
