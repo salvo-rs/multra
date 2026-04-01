@@ -321,7 +321,7 @@ impl Stream for Field<'_> {
             return Poll::Ready(None);
         }
 
-        debug_assert!(self.state.try_lock().is_some(), "expected exlusive lock");
+        debug_assert!(self.state.try_lock().is_some(), "expected exclusive lock");
         let state = self.state.clone();
         let mut lock = match state.try_lock() {
             Some(lock) => lock,

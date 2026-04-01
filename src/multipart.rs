@@ -242,7 +242,7 @@ impl<'r> Multipart<'r> {
         }
 
         debug_assert_eq!(Arc::strong_count(&self.state), 1);
-        debug_assert!(self.state.try_lock().is_some(), "expected exlusive lock");
+        debug_assert!(self.state.try_lock().is_some(), "expected exclusive lock");
         let mut lock = match self.state.try_lock() {
             Some(lock) => lock,
             None => return Poll::Ready(Err(Error::LockFailure)),
