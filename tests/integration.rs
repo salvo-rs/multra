@@ -241,6 +241,34 @@ async fn test_multipart_constraint_size_limit_for_field() {
 }
 
 #[tokio::test]
+async fn test_multipart_constraint_size_limit_headers() {
+    let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY--\r\n";
+    let stream = str_stream(data);
+
+    let constraints = Constraints::new().size_limit(SizeLimit::new().headers(128));
+    let mut m = Multipart::with_constraints(stream, "X-BOUNDARY", constraints);
+
+    assert_eq!(
+        m.next_field().await.unwrap().unwrap().text().await.unwrap(),
+        "abcd".to_owned()
+    );
+}
+
+#[tokio::test]
+async fn test_multipart_constraint_size_limit_headers_size_exceeded() {
+    let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\nX-Long-Header: 1234567890\r\n\r\nabcd\r\n--X-BOUNDARY--\r\n";
+    let stream = str_stream(data);
+
+    let constraints = Constraints::new().size_limit(SizeLimit::new().headers(32));
+    let mut m = Multipart::with_constraints(stream, "X-BOUNDARY", constraints);
+
+    assert!(matches!(
+        m.next_field().await,
+        Err(multra::Error::HeadersSizeExceeded { limit: 32 })
+    ));
+}
+
+#[tokio::test]
 #[should_panic]
 async fn test_multipart_constraint_size_limit_for_field_size_exceeded() {
     let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_file_field\"; filename=\"a-text-file.txt\"\r\nContent-Type: text/plain\r\n\r\nHello world\nHello\r\nWorld\rAgain\r\n--X-BOUNDARY--\r\n";
