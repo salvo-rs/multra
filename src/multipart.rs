@@ -103,6 +103,9 @@ pub(crate) enum StreamingStage {
 impl<'r> Multipart<'r> {
     /// Construct a new `Multipart` instance with the given [`Bytes`] stream and
     /// the boundary.
+    ///
+    /// This constructor keeps the default unbounded size limits for backward
+    /// compatibility. For untrusted input, prefer [`Multipart::with_constraints`].
     pub fn new<S, O, E, B>(stream: S, boundary: B) -> Self
     where
         S: Stream<Item = Result<O, E>> + Send + 'r,
@@ -115,6 +118,8 @@ impl<'r> Multipart<'r> {
 
     /// Construct a new `Multipart` instance with the given [`Bytes`] stream and
     /// the boundary.
+    ///
+    /// This is the recommended constructor for untrusted multipart bodies.
     pub fn with_constraints<S, O, E, B>(stream: S, boundary: B, constraints: Constraints) -> Self
     where
         S: Stream<Item = Result<O, E>> + Send + 'r,
@@ -152,6 +157,10 @@ impl<'r> Multipart<'r> {
     ///
     /// This requires the optional `tokio-io` feature to be enabled.
     ///
+    /// This constructor keeps the default unbounded size limits for backward
+    /// compatibility. For untrusted input, prefer
+    /// [`Multipart::with_reader_with_constraints`].
+    ///
     /// # Examples
     ///
     /// ```
@@ -187,6 +196,8 @@ impl<'r> Multipart<'r> {
     /// # Optional
     ///
     /// This requires the optional `tokio-io` feature to be enabled.
+    ///
+    /// This is the recommended constructor for untrusted multipart bodies.
     ///
     /// # Examples
     ///

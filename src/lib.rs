@@ -16,15 +16,22 @@
 //! // Import multra types.
 //! use futures_util::stream::once;
 //! use futures_util::stream::Stream;
-//! use multra::Multipart;
+//! use multra::{Constraints, Multipart, SizeLimit};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Generate a byte stream and the boundary from somewhere e.g. server request body.
 //!     let (stream, boundary) = get_byte_stream_from_somewhere().await;
 //!
-//!     // Create a `Multipart` instance from that byte stream and the boundary.
-//!     let mut multipart = Multipart::new(stream, boundary);
+//!     let constraints = Constraints::new().size_limit(
+//!         SizeLimit::new()
+//!             .whole_stream(15 * 1024 * 1024)
+//!             .per_field(10 * 1024 * 1024)
+//!             .for_field("my_text_field", 30 * 1024),
+//!     );
+//!
+//!     // Create a constrained `Multipart` instance for untrusted input.
+//!     let mut multipart = Multipart::with_constraints(stream, boundary, constraints);
 //!
 //!     // Iterate over the fields, use `next_field()` to get the next field.
 //!     while let Some(mut field) = multipart.next_field().await? {
@@ -58,10 +65,10 @@
 //!
 //! ## Prevent Denial of Service (DoS) Attack
 //!
-//! This crate also provides some APIs to prevent potential DoS attacks with
-//! fine grained control. It's recommended to add some constraints
-//! on field (specially text field) size to avoid potential DoS attacks from
-//! attackers running the server out of memory.
+//! This crate provides APIs to prevent potential DoS attacks with fine grained
+//! control. The default constructors leave stream and field size limits
+//! unbounded, so it is recommended to add explicit constraints for untrusted
+//! multipart bodies.
 //!
 //! An example:
 //!
@@ -105,9 +112,9 @@
 //!
 //! ## Usage with [hyper.rs](https://hyper.rs/) server
 //!
-//! An [example](https://github.com/salvo-rs/multra/blob/master/examples/hyper_server_example.rs) showing usage with [hyper.rs](https://hyper.rs/).
+//! An [example](https://github.com/salvo-rs/multra/blob/main/examples/hyper_server_example.rs) showing usage with [hyper.rs](https://hyper.rs/).
 //!
-//! For more examples, please visit [examples](https://github.com/salvo-rs/multra/tree/master/examples).
+//! For more examples, please visit [examples](https://github.com/salvo-rs/multra/tree/main/examples).
 
 #![forbid(unsafe_code)]
 #![warn(
