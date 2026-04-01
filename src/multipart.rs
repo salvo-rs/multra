@@ -202,7 +202,7 @@ impl<'r> Multipart<'r> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run());
     /// ```
     #[cfg(feature = "tokio-io")]
-    pub fn with_reader_with_constraints<R, B>(
+    pub fn with_reader_and_constraints<R, B>(
         reader: R,
         boundary: B,
         constraints: Constraints,
