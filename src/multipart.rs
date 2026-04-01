@@ -79,7 +79,8 @@ pub struct Multipart<'r> {
 #[derive(Debug)]
 pub(crate) struct MultipartState<'r> {
     pub(crate) buffer: StreamBuffer<'r>,
-    pub(crate) boundary: String,
+    pub(crate) boundary_bytes: Vec<u8>,
+    pub(crate) field_boundary_bytes: Vec<u8>,
     pub(crate) stage: StreamingStage,
     pub(crate) next_field_idx: usize,
     pub(crate) curr_field_name: Option<String>,
@@ -121,6 +122,10 @@ impl<'r> Multipart<'r> {
         E: Into<Box<dyn std::error::Error + Send + Sync>> + 'r,
         B: Into<String>,
     {
+        let boundary = boundary.into();
+        let boundary_bytes = format!("{}{}", constants::BOUNDARY_EXT, boundary).into_bytes();
+        let field_boundary_bytes =
+            format!("{}{}{}", constants::CRLF, constants::BOUNDARY_EXT, boundary).into_bytes();
         let stream = stream
             .map_ok(|b| b.into())
             .map_err(|err| Error::StreamReadFailed(err.into()));
@@ -128,7 +133,8 @@ impl<'r> Multipart<'r> {
         Multipart {
             state: Arc::new(Mutex::new(MultipartState {
                 buffer: StreamBuffer::new(stream, constraints.size_limit.whole_stream),
-                boundary: boundary.into(),
+                boundary_bytes,
+                field_boundary_bytes,
                 stage: StreamingStage::FindingFirstBoundary,
                 next_field_idx: 0,
                 curr_field_name: None,
@@ -256,9 +262,7 @@ impl<'r> Multipart<'r> {
         state.buffer.poll_stream(cx)?;
 
         if state.stage == StreamingStage::FindingFirstBoundary {
-            let boundary = &state.boundary;
-            let boundary_deriv = format!("{}{}", constants::BOUNDARY_EXT, boundary);
-            match state.buffer.read_to(boundary_deriv.as_bytes()) {
+            match state.buffer.read_to(&state.boundary_bytes) {
                 Some(_) => state.stage = StreamingStage::ReadingBoundary,
                 None => {
                     state.buffer.poll_stream(cx)?;
@@ -271,10 +275,10 @@ impl<'r> Multipart<'r> {
 
         // The previous field did not finish reading its data.
         if state.stage == StreamingStage::ReadingFieldData {
-            match state
-                .buffer
-                .read_field_data(state.boundary.as_str(), state.curr_field_name.as_deref())?
-            {
+            match state.buffer.read_field_data(
+                &state.field_boundary_bytes,
+                state.curr_field_name.as_deref(),
+            )? {
                 Some((done, bytes)) => {
                     state.curr_field_size_counter += bytes.len() as u64;
 
@@ -298,10 +302,7 @@ impl<'r> Multipart<'r> {
         }
 
         if state.stage == StreamingStage::ReadingBoundary {
-            let boundary = &state.boundary;
-            let boundary_deriv_len = constants::BOUNDARY_EXT.len() + boundary.len();
-
-            let boundary_bytes = match state.buffer.read_exact(boundary_deriv_len) {
+            let boundary_bytes = match state.buffer.read_exact(state.boundary_bytes.len()) {
                 Some(bytes) => bytes,
                 None => {
                     return if state.buffer.eof {
@@ -312,8 +313,7 @@ impl<'r> Multipart<'r> {
                 }
             };
 
-            if &boundary_bytes[..] == format!("{}{}", constants::BOUNDARY_EXT, boundary).as_bytes()
-            {
+            if &boundary_bytes[..] == state.boundary_bytes.as_slice() {
                 state.stage = StreamingStage::DeterminingBoundaryType;
             } else {
                 return Poll::Ready(Err(Error::IncompleteStream));

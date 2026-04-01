@@ -333,10 +333,10 @@ impl Stream for Field<'_> {
             return Poll::Ready(Some(Err(err)));
         }
 
-        match state
-            .buffer
-            .read_field_data(&state.boundary, state.curr_field_name.as_deref())
-        {
+        match state.buffer.read_field_data(
+            &state.field_boundary_bytes,
+            state.curr_field_name.as_deref(),
+        ) {
             Ok(Some((done, bytes))) => {
                 state.curr_field_size_counter += bytes.len() as u64;
 
