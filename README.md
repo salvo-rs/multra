@@ -1,16 +1,16 @@
-[![GitHub Actions Status](https://github.com/rousan/multer-rs/actions/workflows/test.yml/badge.svg)](https://github.com/rousan/multer-rs/actions)
-[![crates.io](https://img.shields.io/crates/v/multer.svg)](https://crates.io/crates/multer)
-[![Documentation](https://docs.rs/multer/badge.svg)](https://docs.rs/multer)
-[![MIT](https://img.shields.io/crates/l/multer.svg)](./LICENSE)
+[![GitHub Actions Status](https://github.com/salvo-rs/multra/actions/workflows/test.yml/badge.svg)](https://github.com/salvo-rs/multra/actions)
+[![crates.io](https://img.shields.io/crates/v/multra.svg)](https://crates.io/crates/multra)
+[![Documentation](https://docs.rs/multra/badge.svg)](https://docs.rs/multra)
+[![MIT](https://img.shields.io/crates/l/multra.svg)](./LICENSE)
 
-# multer-rs
+# multra
 
-An async parser for `multipart/form-data` content-type in Rust.
+An async parser for `multipart/form-data` content-type in Rust. Forked from [multer](https://github.com/rwf2/multer).
 
 It accepts a [`Stream`](https://docs.rs/futures/0.3/futures/stream/trait.Stream.html) of [`Bytes`](https://docs.rs/bytes/1/bytes/struct.Bytes.html) as
 a source, so that It can be plugged into any async Rust environment e.g. any async server.
 
-[Docs](https://docs.rs/multer)
+[Docs](https://docs.rs/multra)
 
 ## Install    
 
@@ -18,7 +18,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-multer = "2.0"
+multra = "3.1"
 ```
 
 # Basic Example
@@ -108,9 +108,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Usage with [hyper.rs](https://hyper.rs/) server
 
-An [example](https://github.com/rousan/multer-rs/blob/master/examples/hyper_server_example.rs) showing usage with [hyper.rs](https://hyper.rs/).
+An [example](https://github.com/salvo-rs/multra/blob/master/examples/hyper_server_example.rs) showing usage with [hyper.rs](https://hyper.rs/).
 
-For more examples, please visit [examples](https://github.com/rousan/multer-rs/tree/master/examples).
+For more examples, please visit [examples](https://github.com/salvo-rs/multra/tree/master/examples).
 
 ## Contributing
 
