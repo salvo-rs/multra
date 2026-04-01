@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use encoding_rs::Encoding;
+
 pub(crate) const DEFAULT_WHOLE_STREAM_SIZE_LIMIT: u64 = u64::MAX;
 pub(crate) const DEFAULT_PER_FIELD_SIZE_LIMIT: u64 = u64::MAX;
 pub(crate) const DEFAULT_HEADERS_SIZE_LIMIT: u64 = 64 * 1024;
@@ -32,47 +34,203 @@ fn trim_ascii_ws_then(bytes: &[u8], char: u8) -> Option<&[u8]> {
     }
 }
 
+fn trim_ascii_ws_end(bytes: &[u8]) -> &[u8] {
+    bytes
+        .iter()
+        .rposition(|b| !b.is_ascii_whitespace())
+        .map_or(&bytes[..0], |i| &bytes[..=i])
+}
+
+fn skip_to_next_parameter(header: &[u8], index: &mut usize) {
+    while *index < header.len() && header[*index] != b';' {
+        *index += 1;
+    }
+    if *index < header.len() {
+        *index += 1;
+    }
+}
+
+fn skip_ascii_ws(header: &[u8], index: &mut usize) {
+    while *index < header.len() && header[*index].is_ascii_whitespace() {
+        *index += 1;
+    }
+}
+
+fn parse_quoted_value(mut header: &[u8]) -> Option<(&[u8], bool)> {
+    header = trim_ascii_ws_then(header, b'"')?;
+    let start = 0;
+    let (mut index, mut escaped) = (start, false);
+
+    while index < header.len() {
+        if header[index] == b'"' {
+            let mut backslashes = 0;
+            let mut cursor = index;
+            while cursor > start && header[cursor - 1] == b'\\' {
+                backslashes += 1;
+                cursor -= 1;
+            }
+
+            if backslashes % 2 == 0 {
+                return Some((&header[..index], escaped));
+            }
+
+            escaped = true;
+        }
+
+        index += 1;
+    }
+
+    None
+}
+
+fn parse_unquoted_value(header: &[u8]) -> &[u8] {
+    let value = trim_ascii_ws_start(header);
+    trim_ascii_ws_end(&value[..memchr::memchr(b';', value).unwrap_or(value.len())])
+}
+
+fn decode_percent_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
+    if !bytes.contains(&b'%') {
+        return Some(bytes.to_vec());
+    }
+
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let hi = bytes.get(index + 1)?;
+            let lo = bytes.get(index + 2)?;
+            let hex = [*hi, *lo];
+            decoded.push(u8::from_str_radix(std::str::from_utf8(&hex).ok()?, 16).ok()?);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+    }
+
+    Some(decoded)
+}
+
+fn decode_value<'h>(bytes: &'h [u8], is_escaped: bool) -> Option<Cow<'h, str>> {
+    if bytes.contains(&b'%') {
+        return Some(String::from_utf8(decode_percent_bytes(bytes)?).ok()?.into());
+    }
+
+    let value = std::str::from_utf8(bytes).ok()?;
+    if is_escaped {
+        Some(value.replace(r#"\""#, "\"").into())
+    } else {
+        Some(value.into())
+    }
+}
+
+fn decode_extended_value(bytes: &[u8]) -> Option<String> {
+    let value = std::str::from_utf8(bytes).ok()?;
+    let mut parts = value.splitn(3, '\'');
+    let charset = parts.next()?;
+    let _language = parts.next()?;
+    let encoded = parts.next()?;
+
+    let encoding = Encoding::for_label(charset.as_bytes())?;
+    let decoded = decode_percent_bytes(encoded.as_bytes())?;
+    let (text, _, had_errors) = encoding.decode(&decoded);
+    if had_errors {
+        return None;
+    }
+
+    Some(text.into_owned())
+}
+
 impl ContentDispositionAttr {
     /// Extract ContentDisposition Attribute from header.
     ///
-    /// Some older clients may not quote the name or filename, so we allow them,
-    /// but require them to be percent encoded. Only allocates if percent
-    /// decoding, and there are characters that need to be decoded.
-    pub fn extract_from<'h>(&self, mut header: &'h [u8]) -> Option<Cow<'h, str>> {
-        // TODO: The prefix should be matched case-insensitively.
+    /// Some older clients may not quote the name or filename, so we allow them.
+    /// If they percent-encode the value, we decode it before returning.
+    pub fn extract_from<'h>(&self, header: &'h [u8]) -> Option<Cow<'h, str>> {
+        if self == &ContentDispositionAttr::FileName
+            && let Some(value) = self.extract_extended_from(header)
+        {
+            return Some(value);
+        }
+
         let prefix = match self {
             ContentDispositionAttr::Name => &b"name"[..],
             ContentDispositionAttr::FileName => &b"filename"[..],
         };
+        let mut index = 0;
 
-        while let Some(i) = memchr::memmem::find(header, prefix) {
-            // Check if we found a superstring of `prefix`; continue if so.
-            let suffix = &header[(i + prefix.len())..];
-            if i > 0 && !(header[i - 1].is_ascii_whitespace() || header[i - 1] == b';') {
-                header = suffix;
+        while index < header.len() {
+            skip_to_next_parameter(header, &mut index);
+            skip_ascii_ws(header, &mut index);
+            if index >= header.len() {
+                break;
+            }
+
+            let key_start = index;
+            while index < header.len()
+                && !header[index].is_ascii_whitespace()
+                && header[index] != b'='
+                && header[index] != b';'
+            {
+                index += 1;
+            }
+
+            let key = &header[key_start..index];
+            skip_ascii_ws(header, &mut index);
+            if index >= header.len() || header[index] != b'=' {
                 continue;
             }
 
-            // Now find and trim the `=`. Handle quoted strings first.
-            let rest = trim_ascii_ws_then(suffix, b'=')?;
-            let (bytes, is_escaped) = if let Some(rest) = trim_ascii_ws_then(rest, b'"') {
-                let (mut k, mut escaped) = (memchr::memchr(b'"', rest)?, false);
-                while k > 0 && rest[k - 1] == b'\\' {
-                    escaped = true;
-                    k = k + 1 + memchr::memchr(b'"', &rest[(k + 1)..])?;
-                }
-
-                (&rest[..k], escaped)
+            index += 1;
+            let rest = &header[index..];
+            let (bytes, is_escaped) = if let Some((value, escaped)) = parse_quoted_value(rest) {
+                (value, escaped)
             } else {
-                let rest = trim_ascii_ws_start(rest);
-                let j = memchr::memchr2(b';', b' ', rest).unwrap_or(rest.len());
-                (&rest[..j], false)
+                (parse_unquoted_value(rest), false)
             };
 
-            return match std::str::from_utf8(bytes).ok()? {
-                name if is_escaped => Some(name.replace(r#"\""#, "\"").into()),
-                name => Some(name.into()),
-            };
+            if key.eq_ignore_ascii_case(prefix) {
+                return decode_value(bytes, is_escaped);
+            }
+        }
+
+        None
+    }
+
+    fn extract_extended_from<'h>(&self, header: &'h [u8]) -> Option<Cow<'h, str>> {
+        let prefix = match self {
+            ContentDispositionAttr::Name => return None,
+            ContentDispositionAttr::FileName => &b"filename*"[..],
+        };
+        let mut index = 0;
+
+        while index < header.len() {
+            skip_to_next_parameter(header, &mut index);
+            skip_ascii_ws(header, &mut index);
+            if index >= header.len() {
+                break;
+            }
+
+            let key_start = index;
+            while index < header.len()
+                && !header[index].is_ascii_whitespace()
+                && header[index] != b'='
+                && header[index] != b';'
+            {
+                index += 1;
+            }
+
+            let key = &header[key_start..index];
+            skip_ascii_ws(header, &mut index);
+            if index >= header.len() || header[index] != b'=' {
+                continue;
+            }
+
+            index += 1;
+            if key.eq_ignore_ascii_case(prefix) {
+                let value = parse_unquoted_value(&header[index..]);
+                return Some(decode_extended_value(value)?.into());
+            }
         }
 
         None
@@ -220,5 +378,32 @@ mod tests {
         let val = br#"form-data; name="myfield\"name""#;
         let name = ContentDispositionAttr::Name.extract_from(val);
         assert_eq!(name.unwrap(), r#"myfield"name"#);
+    }
+
+    #[test]
+    fn test_content_disposition_case_insensitive_parameters() {
+        let val = br#"form-data; NAME="my_field"; FILENAME="file-name.txt""#;
+        let name = ContentDispositionAttr::Name.extract_from(val);
+        let filename = ContentDispositionAttr::FileName.extract_from(val);
+        assert_eq!(name.unwrap(), "my_field");
+        assert_eq!(filename.unwrap(), "file-name.txt");
+    }
+
+    #[test]
+    fn test_content_disposition_percent_decoded_values() {
+        let val = br#"form-data; name=my%20field; filename=file%20name.txt"#;
+        let name = ContentDispositionAttr::Name.extract_from(val);
+        let filename = ContentDispositionAttr::FileName.extract_from(val);
+        assert_eq!(name.unwrap(), "my field");
+        assert_eq!(filename.unwrap(), "file name.txt");
+    }
+
+    #[test]
+    fn test_content_disposition_filename_star_preferred() {
+        let val = br#"form-data; name="upload"; filename="fallback.txt"; filename*=UTF-8''%E4%BD%A0%E5%A5%BD.txt"#;
+        let name = ContentDispositionAttr::Name.extract_from(val);
+        let filename = ContentDispositionAttr::FileName.extract_from(val);
+        assert_eq!(name.unwrap(), "upload");
+        assert_eq!(filename.unwrap(), "你好.txt");
     }
 }
