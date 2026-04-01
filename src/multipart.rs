@@ -13,7 +13,7 @@ use crate::constraints::Constraints;
 use crate::content_disposition::ContentDisposition;
 use crate::error::Error;
 use crate::field::Field;
-use crate::{constants, helpers, Result};
+use crate::{Result, constants, helpers};
 
 /// Represents the implementation of `multipart/form-data` formatted data.
 ///
@@ -204,7 +204,11 @@ impl<'r> Multipart<'r> {
     /// ```
     #[cfg(feature = "tokio-io")]
     #[cfg_attr(nightly, doc(cfg(feature = "tokio-io")))]
-    pub fn with_reader_with_constraints<R, B>(reader: R, boundary: B, constraints: Constraints) -> Self
+    pub fn with_reader_with_constraints<R, B>(
+        reader: R,
+        boundary: B,
+        constraints: Constraints,
+    ) -> Self
     where
         R: AsyncRead + Unpin + Send + 'r,
         B: Into<String>,
@@ -310,7 +314,8 @@ impl<'r> Multipart<'r> {
                 }
             };
 
-            if &boundary_bytes[..] == format!("{}{}", constants::BOUNDARY_EXT, boundary).as_bytes() {
+            if &boundary_bytes[..] == format!("{}{}", constants::BOUNDARY_EXT, boundary).as_bytes()
+            {
                 state.stage = StreamingStage::DeterminingBoundaryType;
             } else {
                 return Poll::Ready(Err(Error::IncompleteStream));
@@ -380,7 +385,9 @@ impl<'r> Multipart<'r> {
 
             let mut headers = [httparse::EMPTY_HEADER; constants::MAX_HEADERS];
 
-            let headers = match httparse::parse_headers(&header_bytes, &mut headers).map_err(Error::ReadHeaderFailed)? {
+            let headers = match httparse::parse_headers(&header_bytes, &mut headers)
+                .map_err(Error::ReadHeaderFailed)?
+            {
                 httparse::Status::Complete((_, raw_headers)) => {
                     match helpers::convert_raw_headers_to_header_map(raw_headers) {
                         Ok(headers) => headers,
@@ -454,6 +461,8 @@ impl<'r> Multipart<'r> {
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run());
     /// ```
     pub async fn next_field_with_idx(&mut self) -> Result<Option<(usize, Field<'r>)>> {
-        self.next_field().await.map(|f| f.map(|field| (field.index(), field)))
+        self.next_field()
+            .await
+            .map(|f| f.map(|field| (field.index(), field)))
     }
 }

@@ -70,7 +70,8 @@ impl<'r> StreamBuffer<'r> {
     }
 
     pub fn read_until(&mut self, pattern: &[u8]) -> Option<Bytes> {
-        memchr::memmem::find(&self.buf, pattern).map(|idx| self.buf.split_to(idx + pattern.len()).freeze())
+        memchr::memmem::find(&self.buf, pattern)
+            .map(|idx| self.buf.split_to(idx + pattern.len()).freeze())
     }
 
     pub fn read_to(&mut self, pattern: &[u8]) -> Option<Bytes> {

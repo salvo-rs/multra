@@ -31,7 +31,10 @@ pub enum Error {
     IncompleteStream,
 
     /// The incoming field size exceeded the maximum limit.
-    FieldSizeExceeded { limit: u64, field_name: Option<String> },
+    FieldSizeExceeded {
+        limit: u64,
+        field_name: Option<String>,
+    },
 
     /// The incoming stream size exceeded the maximum limit.
     StreamSizeExceeded { limit: u64 },
@@ -83,7 +86,11 @@ impl Display for Error {
             }
             Error::FieldSizeExceeded { limit, field_name } => {
                 let name = field_name.as_deref().unwrap_or("<unknown>");
-                write!(f, "field {:?} exceeded the size limit: {} bytes", name, limit)
+                write!(
+                    f,
+                    "field {:?} exceeded the size limit: {} bytes",
+                    name, limit
+                )
             }
             Error::StreamSizeExceeded { limit } => {
                 write!(f, "stream size exceeded limit: {} bytes", limit)

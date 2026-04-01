@@ -48,7 +48,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Generate a byte stream and the boundary from somewhere e.g. server request
 // body.
-async fn get_byte_stream_from_somewhere() -> (impl Stream<Item = Result<Bytes, Infallible>>, &'static str) {
+async fn get_byte_stream_from_somewhere()
+-> (impl Stream<Item = Result<Bytes, Infallible>>, &'static str) {
     let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_file_field\"; filename=\"a-text-file.txt\"\r\nContent-Type: text/plain\r\n\r\nHello world\nHello\r\nWorld\rAgain\r\n--X-BOUNDARY--\r\n";
     let stream = futures_util::stream::iter(
         data.chars()
