@@ -1,0 +1,31 @@
+name: Rustfmt
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  rustfmt:
+    name: Auto rustfmt
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Run rustfmt
+        run: cargo +nightly fmt --all
+
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "style: auto rustfmt"
