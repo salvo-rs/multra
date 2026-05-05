@@ -8,7 +8,6 @@ pub(crate) const DEFAULT_HEADERS_SIZE_LIMIT: u64 = 64 * 1024;
 
 pub(crate) const MAX_HEADERS: usize = 32;
 pub(crate) const BOUNDARY_EXT: &str = "--";
-pub(crate) const CR: &str = "\r";
 #[allow(dead_code)]
 pub(crate) const LF: &str = "\n";
 pub(crate) const CRLF: &str = "\r\n";

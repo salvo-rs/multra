@@ -86,6 +86,16 @@ async fn test_multipart_transport_padding() {
 }
 
 #[tokio::test]
+async fn test_multipart_boundary_prefix_with_invalid_suffix_errors_before_truncating() {
+    let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"file\"\r\n\r\nabc\r\n--X-BOUNDARY-not-a-real-delimiter\r\ndef\r\n--X-BOUNDARY--\r\n";
+    let stream = str_stream(data);
+    let mut m = Multipart::new(stream, "X-BOUNDARY");
+
+    let field = m.next_field().await.unwrap().unwrap();
+    assert!(field.text().await.is_err());
+}
+
+#[tokio::test]
 async fn test_multipart_content_disposition_compatibility() {
     let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; NAME=\"my_file_field\"; FILENAME=\"fallback.txt\"; FILENAME*=UTF-8''%E4%BD%A0%E5%A5%BD.txt\r\nContent-Type: text/plain\r\n\r\nhello\r\n--X-BOUNDARY--\r\n";
     let stream = str_stream(data);

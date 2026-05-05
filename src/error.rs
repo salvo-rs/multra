@@ -57,6 +57,9 @@ pub enum Error {
     /// No boundary found in `Content-Type` header.
     NoBoundary,
 
+    /// The boundary parameter is outside the allowed multipart boundary syntax.
+    InvalidBoundary { boundary: String },
+
     /// Failed to decode the field data as `JSON` in
     /// [`field.json()`](crate::Field::json) method.
     #[cfg(feature = "json")]
@@ -108,6 +111,9 @@ impl Display for Error {
             Error::LockFailure => write!(f, "failed to lock multipart state"),
             Error::NoMultipart => write!(f, "Content-Type is not multipart/form-data"),
             Error::NoBoundary => write!(f, "multipart boundary not found in Content-Type"),
+            Error::InvalidBoundary { boundary } => {
+                write!(f, "invalid multipart boundary: {:?}", boundary)
+            }
             #[cfg(feature = "json")]
             Error::DecodeJson(_) => write!(f, "failed to decode field data as JSON"),
         }
@@ -133,7 +139,8 @@ impl std::error::Error for Error {
             | Error::HeadersSizeExceeded { .. }
             | Error::LockFailure
             | Error::NoMultipart
-            | Error::NoBoundary => None,
+            | Error::NoBoundary
+            | Error::InvalidBoundary { .. } => None,
         }
     }
 }
