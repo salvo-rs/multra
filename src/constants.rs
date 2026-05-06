@@ -6,6 +6,12 @@ pub(crate) const DEFAULT_WHOLE_STREAM_SIZE_LIMIT: u64 = u64::MAX;
 pub(crate) const DEFAULT_PER_FIELD_SIZE_LIMIT: u64 = u64::MAX;
 pub(crate) const DEFAULT_HEADERS_SIZE_LIMIT: u64 = 64 * 1024;
 
+// Hard cap on preamble bytes (data before the first boundary). Applied
+// independent of user-supplied `whole_stream` limit so that an attacker
+// cannot force unbounded buffer growth by never sending a boundary, even
+// when constraints are left at their `u64::MAX` defaults.
+pub(crate) const MAX_PREAMBLE_SIZE: usize = 32 * 1024;
+
 pub(crate) const MAX_HEADERS: usize = 32;
 pub(crate) const BOUNDARY_EXT: &str = "--";
 #[allow(dead_code)]

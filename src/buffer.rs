@@ -89,7 +89,10 @@ impl<'r> StreamBuffer<'r> {
         loop {
             match self.stream.as_mut().poll_next(cx) {
                 Poll::Ready(Some(Ok(data))) => {
-                    self.stream_size_counter += data.len() as u64;
+                    // Saturating add prevents an attacker from overflowing
+                    // the counter back to zero to bypass the size check.
+                    self.stream_size_counter =
+                        self.stream_size_counter.saturating_add(data.len() as u64);
 
                     if self.stream_size_counter > self.whole_stream_size_limit {
                         return Err(crate::Error::StreamSizeExceeded {

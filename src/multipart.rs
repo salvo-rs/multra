@@ -276,6 +276,13 @@ impl<'r> Multipart<'r> {
             match state.buffer.read_to(&state.boundary_bytes) {
                 Some(_) => state.stage = StreamingStage::ReadingBoundary,
                 None => {
+                    // Hard cap on preamble: prevents an attacker from forcing
+                    // unbounded memory growth by never sending the first
+                    // boundary marker, even if `whole_stream_size_limit` is
+                    // left at its default of `u64::MAX`.
+                    if state.buffer.buf.len() > constants::MAX_PREAMBLE_SIZE {
+                        return Poll::Ready(Err(Error::IncompleteStream));
+                    }
                     state.buffer.poll_stream(cx)?;
                     if state.buffer.eof {
                         return Poll::Ready(Err(Error::IncompleteStream));
@@ -291,7 +298,11 @@ impl<'r> Multipart<'r> {
                 state.curr_field_name.as_deref(),
             )? {
                 Some((done, bytes)) => {
-                    state.curr_field_size_counter += bytes.len() as u64;
+                    // Saturating add prevents an attacker from overflowing
+                    // the counter back to zero to bypass the size check.
+                    state.curr_field_size_counter = state
+                        .curr_field_size_counter
+                        .saturating_add(bytes.len() as u64);
 
                     if state.curr_field_size_counter > state.curr_field_size_limit {
                         return Poll::Ready(Err(Error::FieldSizeExceeded {
@@ -392,7 +403,7 @@ impl<'r> Multipart<'r> {
                     }
 
                     return if state.buffer.eof {
-                        return Poll::Ready(Err(Error::IncompleteStream));
+                        Poll::Ready(Err(Error::IncompleteStream))
                     } else {
                         Poll::Pending
                     };

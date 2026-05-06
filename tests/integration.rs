@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -323,6 +324,24 @@ async fn test_multipart_constraint_size_limit_for_field_size_exceeded() {
     assert!(m.next_field().await.unwrap().is_some());
     assert!(m.next_field().await.unwrap().is_some());
     assert!(m.next_field().await.unwrap().is_none());
+}
+
+// Security regression: a peer that never sends a boundary marker must not
+// be able to grow the internal buffer without bound, even when
+// `whole_stream_size_limit` is left at its default of `u64::MAX`.
+#[tokio::test]
+async fn test_security_unbounded_preamble_rejected() {
+    // 64 KiB of junk, no boundary anywhere.
+    let junk = vec![b'A'; 64 * 1024];
+    let stream = stream::once(async move { Ok::<Bytes, Infallible>(Bytes::from(junk)) });
+    let mut m = Multipart::new(stream, "X-BOUNDARY");
+
+    let result = m.next_field().await;
+    assert!(
+        matches!(result, Err(multra::Error::IncompleteStream)),
+        "expected IncompleteStream once preamble cap is exceeded, got {:?}",
+        result
+    );
 }
 
 #[tokio::test]
