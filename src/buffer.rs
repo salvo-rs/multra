@@ -7,6 +7,58 @@ use futures_util::stream::Stream;
 
 use crate::constants;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BoundaryMatch {
+    Valid,
+    Partial,
+    Invalid,
+}
+
+fn partial_boundary_suffix_len(buf: &[u8], boundary: &[u8]) -> usize {
+    let max_len = buf.len().min(boundary.len().saturating_sub(1));
+
+    (1..=max_len)
+        .rev()
+        .find(|len| buf[buf.len() - len..] == boundary[..*len])
+        .unwrap_or(0)
+}
+
+fn match_padding_and_crlf(bytes: &[u8], eof: bool, allow_eof: bool) -> BoundaryMatch {
+    let mut idx = 0;
+    while matches!(bytes.get(idx), Some(b' ' | b'\t')) {
+        idx += 1;
+    }
+
+    let bytes = &bytes[idx..];
+    if bytes.is_empty() {
+        return if eof && allow_eof {
+            BoundaryMatch::Valid
+        } else if eof {
+            BoundaryMatch::Invalid
+        } else {
+            BoundaryMatch::Partial
+        };
+    }
+
+    match bytes {
+        [b'\r', b'\n', ..] => BoundaryMatch::Valid,
+        [b'\r'] if !eof => BoundaryMatch::Partial,
+        _ => BoundaryMatch::Invalid,
+    }
+}
+
+fn match_boundary_suffix(buf: &[u8], suffix_start: usize, eof: bool) -> BoundaryMatch {
+    let suffix = &buf[suffix_start..];
+    match suffix {
+        [] if !eof => BoundaryMatch::Partial,
+        [] => BoundaryMatch::Invalid,
+        [b'-'] if !eof => BoundaryMatch::Partial,
+        [b'-', b'-', rest @ ..] => match_padding_and_crlf(rest, eof, true),
+        [b'-', ..] => BoundaryMatch::Invalid,
+        _ => match_padding_and_crlf(suffix, eof, false),
+    }
+}
+
 pub(crate) struct StreamBuffer<'r> {
     pub(crate) eof: bool,
     pub(crate) buf: BytesMut,
@@ -114,53 +166,45 @@ impl<'r> StreamBuffer<'r> {
 
         let b_len = boundary.len();
 
-        match memchr::memmem::find(&self.buf, boundary) {
-            Some(idx) => {
-                trace!("new field found at {}", idx);
-                let bytes = self.buf.split_to(idx).freeze();
+        if let Some(idx) = memchr::memmem::find(&self.buf, boundary) {
+            match match_boundary_suffix(&self.buf, idx + b_len, self.eof) {
+                BoundaryMatch::Valid => {
+                    trace!("new field found at {}", idx);
+                    let bytes = self.buf.split_to(idx).freeze();
 
-                // discard \r\n.
-                self.buf.advance(constants::CRLF.len());
+                    // discard \r\n.
+                    self.buf.advance(constants::CRLF.len());
 
-                Ok(Some((true, bytes)))
-            }
-            None if self.eof => {
-                trace!("no new field found: EOF. terminating");
-                Err(crate::Error::IncompleteFieldData {
-                    field_name: field_name.map(|s| s.to_owned()),
-                })
-            }
-            None => {
-                let buf_len = self.buf.len();
-                let rem_boundary_part_max_len = b_len - 1;
-                let rem_boundary_part_idx = buf_len.saturating_sub(rem_boundary_part_max_len);
-
-                trace!("no new field found, not EOF, checking close");
-                let bytes = &self.buf[rem_boundary_part_idx..];
-                match memchr::memmem::rfind(bytes, constants::CR.as_bytes()) {
-                    Some(rel_idx) => {
-                        let idx = rel_idx + rem_boundary_part_idx;
-
-                        match memchr::memmem::find(boundary, &self.buf[idx..]) {
-                            Some(_) => {
-                                let bytes = self.buf.split_to(idx).freeze();
-
-                                match bytes.is_empty() {
-                                    true => Ok(None),
-                                    false => Ok(Some((false, bytes))),
-                                }
-                            }
-                            None => Ok(Some((false, self.read_full_buf()))),
-                        }
+                    return Ok(Some((true, bytes)));
+                }
+                BoundaryMatch::Partial => {
+                    if idx == 0 {
+                        return Ok(None);
                     }
-                    None => Ok(Some((false, self.read_full_buf()))),
+
+                    return Ok(Some((false, self.buf.split_to(idx).freeze())));
+                }
+                BoundaryMatch::Invalid => {
+                    return Err(crate::Error::IncompleteStream);
                 }
             }
         }
-    }
 
-    pub fn read_full_buf(&mut self) -> Bytes {
-        self.buf.split_to(self.buf.len()).freeze()
+        if self.eof {
+            trace!("no new field found: EOF. terminating");
+            return Err(crate::Error::IncompleteFieldData {
+                field_name: field_name.map(|s| s.to_owned()),
+            });
+        }
+
+        let preserve_len = partial_boundary_suffix_len(&self.buf, boundary);
+        let readable_len = self.buf.len().saturating_sub(preserve_len);
+
+        if readable_len == 0 {
+            Ok(None)
+        } else {
+            Ok(Some((false, self.buf.split_to(readable_len).freeze())))
+        }
     }
 }
 

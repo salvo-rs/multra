@@ -6,7 +6,7 @@ use futures_util::StreamExt;
 use http_body_util::{BodyStream, Full};
 use hyper::{Request, Response, StatusCode, body::Incoming, header::CONTENT_TYPE};
 // Import the multra types.
-use multra::Multipart;
+use multra::{Constraints, Multipart, SizeLimit};
 
 // A handler for incoming requests.
 async fn handle(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
@@ -42,8 +42,17 @@ async fn process_multipart(body: Incoming, boundary: String) -> multra::Result<(
     let body_stream = BodyStream::new(body)
         .filter_map(|result| async move { result.map(|frame| frame.into_data().ok()).transpose() });
 
+    let constraints = Constraints::new()
+        .allowed_fields(vec!["my_text_field", "my_file_field"])
+        .size_limit(
+            SizeLimit::new()
+                .whole_stream(15 * 1024 * 1024)
+                .per_field(10 * 1024 * 1024)
+                .headers(64 * 1024),
+        );
+
     // Create a Multipart instance from the request body.
-    let mut multipart = Multipart::new(body_stream, boundary);
+    let mut multipart = Multipart::with_constraints(body_stream, boundary, constraints);
 
     // Iterate over the fields, `next_field` method will return the next field if
     // available.

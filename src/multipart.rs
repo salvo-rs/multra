@@ -159,7 +159,7 @@ impl<'r> Multipart<'r> {
     ///
     /// This constructor keeps the default unbounded size limits for backward
     /// compatibility. For untrusted input, prefer
-    /// [`Multipart::with_reader_with_constraints`].
+    /// [`Multipart::with_reader_and_constraints`].
     ///
     /// # Examples
     ///

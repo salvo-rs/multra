@@ -156,6 +156,37 @@ mod size_limit;
 /// A Result type often returned from methods that can have `multra` errors.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+fn is_boundary_char_no_space(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric()
+        || matches!(
+            byte,
+            b'\'' | b'(' | b')' | b'+' | b'_' | b',' | b'-' | b'.' | b'/' | b':' | b'=' | b'?'
+        )
+}
+
+fn is_boundary_char(byte: u8) -> bool {
+    byte == b' ' || is_boundary_char_no_space(byte)
+}
+
+fn validate_boundary(boundary: &str) -> Result<()> {
+    let bytes = boundary.as_bytes();
+
+    if bytes.is_empty()
+        || bytes.len() > 70
+        || !bytes[..bytes.len() - 1]
+            .iter()
+            .copied()
+            .all(is_boundary_char)
+        || !is_boundary_char_no_space(bytes[bytes.len() - 1])
+    {
+        return Err(Error::InvalidBoundary {
+            boundary: boundary.to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
 /// Parses the `Content-Type` header to extract the boundary value.
 ///
 /// # Examples
@@ -181,9 +212,10 @@ pub fn parse_boundary<T: AsRef<str>>(content_type: T) -> Result<String> {
         return Err(Error::NoMultipart);
     }
 
-    m.get_param(mime::BOUNDARY)
-        .map(|name| name.as_str().to_owned())
-        .ok_or(Error::NoBoundary)
+    let boundary = m.get_param(mime::BOUNDARY).ok_or(Error::NoBoundary)?;
+    validate_boundary(boundary.as_str())?;
+
+    Ok(boundary.as_str().to_owned())
 }
 
 #[cfg(test)]
@@ -206,5 +238,22 @@ mod tests {
 
         let content_type = "text/plain; boundary=------ABCDEFG";
         assert!(parse_boundary(content_type).is_err());
+
+        let boundary = "a".repeat(70);
+        let content_type = format!("multipart/form-data; boundary={boundary}");
+        assert_eq!(parse_boundary(content_type), Ok(boundary));
+
+        let boundary = "a".repeat(71);
+        let content_type = format!("multipart/form-data; boundary={boundary}");
+        assert!(matches!(
+            parse_boundary(content_type),
+            Err(Error::InvalidBoundary { .. })
+        ));
+
+        let content_type = "multipart/form-data; boundary=\"abc@def\"";
+        assert!(matches!(
+            parse_boundary(content_type),
+            Err(Error::InvalidBoundary { .. })
+        ));
     }
 }
