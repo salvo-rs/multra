@@ -50,7 +50,8 @@ fn match_padding_and_crlf(bytes: &[u8], eof: bool, allow_eof: bool) -> BoundaryM
 fn match_boundary_suffix(buf: &[u8], suffix_start: usize, eof: bool) -> BoundaryMatch {
     let suffix = &buf[suffix_start..];
     match suffix {
-        [] => BoundaryMatch::Partial,
+        [] if !eof => BoundaryMatch::Partial,
+        [] => BoundaryMatch::Invalid,
         [b'-'] if !eof => BoundaryMatch::Partial,
         [b'-', b'-', rest @ ..] => match_padding_and_crlf(rest, eof, true),
         [b'-', ..] => BoundaryMatch::Invalid,
