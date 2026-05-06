@@ -338,7 +338,11 @@ impl Stream for Field<'_> {
             state.curr_field_name.as_deref(),
         ) {
             Ok(Some((done, bytes))) => {
-                state.curr_field_size_counter += bytes.len() as u64;
+                // Saturating add prevents an attacker from overflowing the
+                // counter back to zero to bypass the size check.
+                state.curr_field_size_counter = state
+                    .curr_field_size_counter
+                    .saturating_add(bytes.len() as u64);
 
                 if state.curr_field_size_counter > state.curr_field_size_limit {
                     return Poll::Ready(Some(Err(Error::FieldSizeExceeded {
