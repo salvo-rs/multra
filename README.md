@@ -12,13 +12,13 @@ a source, so that It can be plugged into any async Rust environment e.g. any asy
 
 [Docs](https://docs.rs/multra)
 
-## Install    
+## Install
 
 Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-multra = "3.1"
+multra = "1"
 ```
 
 # Basic Example
@@ -69,10 +69,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn get_byte_stream_from_somewhere() -> (impl Stream<Item = Result<Bytes, Infallible>>, &'static str) {
     let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY--\r\n";
     let stream = once(async move { Result::<Bytes, Infallible>::Ok(Bytes::from(data)) });
-    
+
     (stream, "X-BOUNDARY")
 }
-``` 
+```
 
 `Multipart::new()` and `Multipart::with_reader()` keep backward-compatible unbounded
 size limits. For untrusted uploads, prefer the constrained constructors.
@@ -111,8 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     while let Some(field) = multipart.next_field().await.unwrap() {
         let content = field.text().await.unwrap();
         assert_eq!(content, "abcd");
-    } 
-   
+    }
     Ok(())
 }
 ```
