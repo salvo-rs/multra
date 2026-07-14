@@ -116,9 +116,21 @@ fn decode_percent_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
     Some(decoded)
 }
 
-fn decode_value(bytes: &[u8], is_escaped: bool) -> Option<Cow<'_, str>> {
-    if bytes.contains(&b'%') {
-        return Some(String::from_utf8(decode_percent_bytes(bytes)?).ok()?.into());
+fn decode_value(
+    bytes: &[u8],
+    is_escaped: bool,
+    decode_percent_encoding: bool,
+) -> Option<Cow<'_, str>> {
+    if decode_percent_encoding
+        && bytes.contains(&b'%')
+        && let Some(decoded) = decode_percent_bytes(bytes)
+    {
+        let value = String::from_utf8(decoded).ok()?;
+        return if is_escaped {
+            Some(value.replace(r#"\""#, "\"").into())
+        } else {
+            Some(value.into())
+        };
     }
 
     let value = std::str::from_utf8(bytes).ok()?;
@@ -195,7 +207,7 @@ impl ContentDispositionAttr {
             };
 
             if key.eq_ignore_ascii_case(prefix) {
-                return decode_value(bytes, is_escaped);
+                return decode_value(bytes, is_escaped, matches!(self, Self::FileName));
             }
         }
 
@@ -399,8 +411,14 @@ mod tests {
         let val = br"form-data; name=my%20field; filename=file%20name.txt";
         let name = ContentDispositionAttr::Name.extract_from(val);
         let filename = ContentDispositionAttr::FileName.extract_from(val);
-        assert_eq!(name.unwrap(), "my field");
+        assert_eq!(name.unwrap(), "my%20field");
         assert_eq!(filename.unwrap(), "file name.txt");
+
+        let val = br#"form-data; name="discount%rate"; filename="100%.txt""#;
+        let name = ContentDispositionAttr::Name.extract_from(val);
+        let filename = ContentDispositionAttr::FileName.extract_from(val);
+        assert_eq!(name.unwrap(), "discount%rate");
+        assert_eq!(filename.unwrap(), "100%.txt");
     }
 
     #[test]

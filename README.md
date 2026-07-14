@@ -76,6 +76,8 @@ async fn get_byte_stream_from_somewhere() -> (impl Stream<Item = Result<Bytes, I
 
 `Multipart::new()` and `Multipart::with_reader()` keep backward-compatible unbounded
 size limits. For untrusted uploads, prefer the constrained constructors.
+Use `Multipart::try_new()` or `Multipart::try_with_constraints()` when the
+boundary has not already been validated by `multra::parse_boundary()`.
 
 ## Prevent Denial of Service (DoS) Attacks
 
@@ -86,10 +88,18 @@ recommended to add explicit constraints for untrusted multipart bodies.
 An example:
 
 ```rust
+use bytes::Bytes;
+use futures::stream::once;
 use multra::{Constraints, Multipart, SizeLimit};
+use std::convert::Infallible;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY--\r\n";
+    let some_stream = once(async move {
+        Result::<Bytes, Infallible>::Ok(Bytes::from(data))
+    });
+
     // Create some constraints to be applied to the fields to prevent DoS attack.
     let constraints = Constraints::new()
          // We only accept `my_text_field` and `my_file_field` fields,

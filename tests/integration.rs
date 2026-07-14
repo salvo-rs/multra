@@ -57,6 +57,15 @@ async fn test_multipart_empty() {
 }
 
 #[tokio::test]
+async fn test_multipart_try_new_rejects_invalid_boundary() {
+    let stream = stream::empty::<Result<Bytes, Infallible>>();
+    assert!(matches!(
+        Multipart::try_new(stream, ""),
+        Err(multra::Error::InvalidBoundary { .. })
+    ));
+}
+
+#[tokio::test]
 async fn test_multipart_clean_field() {
     let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_file_field\"; filename=\"a-text-file.txt\"\r\nContent-Type: text/plain\r\n\r\nHello world\nHello\r\nWorld\rAgain\r\n--X-BOUNDARY--\r\n";
     let stream = str_stream(data);
@@ -355,6 +364,19 @@ async fn test_security_unbounded_preamble_rejected() {
         matches!(result, Err(multra::Error::IncompleteStream)),
         "expected IncompleteStream once preamble cap is exceeded, got {result:?}"
     );
+}
+
+#[tokio::test]
+async fn test_security_oversized_preamble_before_boundary_rejected() {
+    let mut data = vec![b'A'; 64 * 1024];
+    data.extend_from_slice(b"--X-BOUNDARY--\r\n");
+    let stream = stream::once(async move { Ok::<Bytes, Infallible>(Bytes::from(data)) });
+    let mut m = Multipart::new(stream, "X-BOUNDARY");
+
+    assert!(matches!(
+        m.next_field().await,
+        Err(multra::Error::IncompleteStream)
+    ));
 }
 
 #[tokio::test]
