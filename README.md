@@ -1,9 +1,9 @@
+# multra
+
 [![GitHub Actions Status](https://github.com/salvo-rs/multra/actions/workflows/test.yml/badge.svg)](https://github.com/salvo-rs/multra/actions)
 [![crates.io](https://img.shields.io/crates/v/multra.svg)](https://crates.io/crates/multra)
 [![Documentation](https://docs.rs/multra/badge.svg)](https://docs.rs/multra)
 [![MIT](https://img.shields.io/crates/l/multra.svg)](./LICENSE)
-
-# multra
 
 An async parser for `multipart/form-data` content-type in Rust. Forked from [multer](https://github.com/rwf2/multer).
 
