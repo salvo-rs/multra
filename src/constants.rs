@@ -161,7 +161,8 @@ impl ContentDispositionAttr {
     /// Extract `ContentDisposition` Attribute from header.
     ///
     /// Some older clients may not quote the name or filename, so we allow them.
-    /// If they percent-encode the value, we decode it before returning.
+    /// Legacy percent-encoding in `filename` is decoded before returning;
+    /// percent signs in field names are preserved literally.
     pub fn extract_from<'h>(&self, header: &'h [u8]) -> Option<Cow<'h, str>> {
         if self == &Self::FileName
             && let Some(value) = self.extract_extended_from(header)

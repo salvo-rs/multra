@@ -380,6 +380,10 @@ async fn test_security_oversized_preamble_before_boundary_rejected() {
         m.next_field().await,
         Err(multra::Error::PreambleSizeExceeded { limit: 32_768 })
     ));
+    assert!(matches!(
+        m.next_field().await,
+        Err(multra::Error::PreambleSizeExceeded { limit: 32_768 })
+    ));
 }
 
 #[tokio::test]
@@ -388,6 +392,15 @@ async fn test_configurable_preamble_limit() {
     data.extend_from_slice(b"--X-BOUNDARY--\r\n");
     let stream = stream::once(async move { Ok::<Bytes, Infallible>(Bytes::from(data)) });
     let constraints = Constraints::new().size_limit(SizeLimit::new().preamble(128 * 1024));
+    let mut m = Multipart::with_constraints(stream, "X-BOUNDARY", constraints);
+
+    assert!(m.next_field().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn test_zero_preamble_limit_allows_chunked_opening_boundary() {
+    let stream = str_stream("--X-BOUNDARY--\r\n");
+    let constraints = Constraints::new().size_limit(SizeLimit::new().preamble(0));
     let mut m = Multipart::with_constraints(stream, "X-BOUNDARY", constraints);
 
     assert!(m.next_field().await.unwrap().is_none());

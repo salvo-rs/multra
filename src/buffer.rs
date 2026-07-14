@@ -133,8 +133,16 @@ impl<'r> StreamBuffer<'r> {
             .map(|idx| self.buf.split_to(idx + pattern.len()).freeze())
     }
 
-    pub fn read_to(&mut self, pattern: &[u8]) -> Option<Bytes> {
-        memchr::memmem::find(&self.buf, pattern).map(|idx| self.buf.split_to(idx).freeze())
+    pub fn find(&self, pattern: &[u8]) -> Option<usize> {
+        memchr::memmem::find(&self.buf, pattern)
+    }
+
+    pub fn partial_pattern_suffix_len(&self, pattern: &[u8]) -> usize {
+        partial_boundary_suffix_len(&self.buf, pattern)
+    }
+
+    pub fn advance(&mut self, size: usize) {
+        self.buf.advance(size);
     }
 
     pub fn advance_past_transport_padding(&mut self) -> bool {

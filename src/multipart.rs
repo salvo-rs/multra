@@ -373,17 +373,24 @@ impl<'r> Multipart<'r> {
 
         if state.stage == StreamingStage::FindingFirstBoundary {
             let preamble_limit = state.constraints.size_limit.preamble;
-            if let Some(preamble) = state.buffer.read_to(&state.boundary_bytes) {
-                if preamble.len() as u64 > preamble_limit {
+            if let Some(preamble_len) = state.buffer.find(&state.boundary_bytes) {
+                if preamble_len as u64 > preamble_limit {
                     return Poll::Ready(Err(Error::PreambleSizeExceeded {
                         limit: preamble_limit,
                     }));
                 }
+                state.buffer.advance(preamble_len);
                 state.stage = StreamingStage::ReadingBoundary;
             } else {
                 // The independent preamble limit prevents unbounded buffer
-                // growth when the whole-stream limit is left unbounded.
-                if state.buffer.buf.len() as u64 > preamble_limit {
+                // growth when the whole-stream limit is left unbounded. A
+                // trailing partial boundary is not preamble until more input
+                // proves that it is not the opening delimiter.
+                let partial_boundary_len = state
+                    .buffer
+                    .partial_pattern_suffix_len(&state.boundary_bytes);
+                let preamble_len = state.buffer.buf.len().saturating_sub(partial_boundary_len);
+                if preamble_len as u64 > preamble_limit {
                     return Poll::Ready(Err(Error::PreambleSizeExceeded {
                         limit: preamble_limit,
                     }));
