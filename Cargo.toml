@@ -1,6 +1,6 @@
 [package]
 name = "multra"
-version = "1.0.2"
+version = "1.1.0"
 description = "An async parser for `multipart/form-data` content-type in Rust."
 homepage = "https://github.com/salvo-rs/multra"
 repository = "https://github.com/salvo-rs/multra"
@@ -20,7 +20,7 @@ features = ["all"]
 
 [features]
 default = []
-all = ["json"]
+all = ["json", "tokio-io", "log"]
 json = ["serde", "serde_json"]
 tokio-io = ["tokio", "tokio-util"]
 log = ["dep:log"]

@@ -1,22 +1,22 @@
 version: 1.0.0
 checklist:
-  - name: Checkout master and sync with remote
+  - name: Checkout main and sync with remote
     type: auto
     run:
-      - git checkout master
-      - git pull
+      - git checkout main
+      - git pull --ff-only
   - name: Check syntax
     type: auto
     run:
-      - cargo check --release --features="all"
+      - cargo check --release --all-features
   - name: Run tests
     type: auto
     run:
-      - cargo test --release --features="all"
+      - cargo test --release --all-features
   - name: Make sure code is formatted
     type: auto
     run:
-      - cargo fmt
+      - cargo fmt --all -- --check
   - name: Bump version
     type: manual
     instructions:
@@ -25,22 +25,20 @@ checklist:
   - name: Commit changes
     type: auto
     run:
-      - git add --all && git commit -m "Bump version"
+      - git add --all && git commit -m "Release v${VERSION}"
   - name: Create a release tag
     type: auto
     run:
-      - git tag "v${VERSION}" -a
+      - git tag "v${VERSION}" -a -m "v${VERSION}"
   - name: Push branches and tags to Github
     type: auto
     run:
-      - git push origin master
-      - git push --tags
+      - git push origin main --follow-tags
   - name: Edit tag on Github
     type: manual
     instructions:
       - Tag is pushed to Github(https://github.com/salvo-rs/multra/releases). Edit it there and make it a release.
-  - name: Publish to crates.io
-    type: auto
-    confirm: Are you sure to publish it to crates.io?
-    run:
-      - cargo publish
+  - name: Verify crates.io publish workflow
+    type: manual
+    instructions:
+      - Confirm the Publish GitHub Actions workflow completed successfully.

@@ -115,6 +115,27 @@ impl<'r> Multipart<'r> {
         Multipart::with_constraints(stream, boundary, Constraints::default())
     }
 
+    /// Construct a new `Multipart` instance after validating the boundary.
+    ///
+    /// This constructor keeps the default unbounded size limits for backward
+    /// compatibility. For untrusted input, prefer
+    /// [`Multipart::try_with_constraints`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidBoundary`] if the boundary is empty, longer
+    /// than 70 bytes, or contains characters that are not valid in a multipart
+    /// boundary.
+    pub fn try_new<S, O, E, B>(stream: S, boundary: B) -> Result<Self>
+    where
+        S: Stream<Item = Result<O, E>> + Send + 'r,
+        O: Into<Bytes> + 'static,
+        E: Into<Box<dyn std::error::Error + Send + Sync>> + 'r,
+        B: Into<String>,
+    {
+        Self::try_with_constraints(stream, boundary, Constraints::default())
+    }
+
     /// Construct a new `Multipart` instance with the given [`Bytes`] stream and
     /// the boundary.
     ///
@@ -147,6 +168,33 @@ impl<'r> Multipart<'r> {
                 constraints,
             })),
         }
+    }
+
+    /// Construct a constrained `Multipart` instance after validating the
+    /// boundary.
+    ///
+    /// This is the recommended constructor when the boundary does not come
+    /// from [`crate::parse_boundary`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidBoundary`] if the boundary is empty, longer
+    /// than 70 bytes, or contains characters that are not valid in a multipart
+    /// boundary.
+    pub fn try_with_constraints<S, O, E, B>(
+        stream: S,
+        boundary: B,
+        constraints: Constraints,
+    ) -> Result<Self>
+    where
+        S: Stream<Item = Result<O, E>> + Send + 'r,
+        O: Into<Bytes> + 'static,
+        E: Into<Box<dyn std::error::Error + Send + Sync>> + 'r,
+        B: Into<String>,
+    {
+        let boundary = boundary.into();
+        crate::validate_boundary(&boundary)?;
+        Ok(Self::with_constraints(stream, boundary, constraints))
     }
 
     /// Construct a new `Multipart` instance with the given [`AsyncRead`] reader
@@ -187,6 +235,26 @@ impl<'r> Multipart<'r> {
     {
         let stream = ReaderStream::new(reader);
         Multipart::new(stream, boundary)
+    }
+
+    /// Construct a new `Multipart` instance from an [`AsyncRead`] reader after
+    /// validating the boundary.
+    ///
+    /// # Optional
+    ///
+    /// This requires the optional `tokio-io` feature to be enabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidBoundary`] if the boundary is invalid.
+    #[cfg(feature = "tokio-io")]
+    pub fn try_with_reader<R, B>(reader: R, boundary: B) -> Result<Self>
+    where
+        R: AsyncRead + Unpin + Send + 'r,
+        B: Into<String>,
+    {
+        let stream = ReaderStream::new(reader);
+        Self::try_new(stream, boundary)
     }
 
     /// Construct a new `Multipart` instance with the given [`AsyncRead`] reader
@@ -231,6 +299,30 @@ impl<'r> Multipart<'r> {
         Multipart::with_constraints(stream, boundary, constraints)
     }
 
+    /// Construct a constrained `Multipart` instance from an [`AsyncRead`]
+    /// reader after validating the boundary.
+    ///
+    /// # Optional
+    ///
+    /// This requires the optional `tokio-io` feature to be enabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidBoundary`] if the boundary is invalid.
+    #[cfg(feature = "tokio-io")]
+    pub fn try_with_reader_and_constraints<R, B>(
+        reader: R,
+        boundary: B,
+        constraints: Constraints,
+    ) -> Result<Self>
+    where
+        R: AsyncRead + Unpin + Send + 'r,
+        B: Into<String>,
+    {
+        let stream = ReaderStream::new(reader);
+        Self::try_with_constraints(stream, boundary, constraints)
+    }
+
     /// Yields the next [`Field`] if available.
     ///
     /// Any previous `Field` returned by this method must be dropped before
@@ -268,8 +360,6 @@ impl<'r> Multipart<'r> {
             return Poll::Ready(Err(Error::LockFailure));
         }
 
-        debug_assert_eq!(Arc::strong_count(&self.state), 1);
-        debug_assert!(self.state.try_lock().is_ok(), "expected exclusive lock");
         let Ok(mut lock) = self.state.try_lock() else {
             return Poll::Ready(Err(Error::LockFailure));
         };
@@ -282,15 +372,28 @@ impl<'r> Multipart<'r> {
         state.buffer.poll_stream(cx)?;
 
         if state.stage == StreamingStage::FindingFirstBoundary {
-            if state.buffer.read_to(&state.boundary_bytes).is_some() {
+            let preamble_limit = state.constraints.size_limit.preamble;
+            if let Some(preamble_len) = state.buffer.find(&state.boundary_bytes) {
+                if preamble_len as u64 > preamble_limit {
+                    return Poll::Ready(Err(Error::PreambleSizeExceeded {
+                        limit: preamble_limit,
+                    }));
+                }
+                state.buffer.advance(preamble_len);
                 state.stage = StreamingStage::ReadingBoundary;
             } else {
-                // Hard cap on preamble: prevents an attacker from forcing
-                // unbounded memory growth by never sending the first
-                // boundary marker, even if `whole_stream_size_limit` is
-                // left at its default of `u64::MAX`.
-                if state.buffer.buf.len() > constants::MAX_PREAMBLE_SIZE {
-                    return Poll::Ready(Err(Error::IncompleteStream));
+                // The independent preamble limit prevents unbounded buffer
+                // growth when the whole-stream limit is left unbounded. A
+                // trailing partial boundary is not preamble until more input
+                // proves that it is not the opening delimiter.
+                let partial_boundary_len = state
+                    .buffer
+                    .partial_pattern_suffix_len(&state.boundary_bytes);
+                let preamble_len = state.buffer.buf.len().saturating_sub(partial_boundary_len);
+                if preamble_len as u64 > preamble_limit {
+                    return Poll::Ready(Err(Error::PreambleSizeExceeded {
+                        limit: preamble_limit,
+                    }));
                 }
                 state.buffer.poll_stream(cx)?;
                 if state.buffer.eof {

@@ -6,11 +6,10 @@ pub const DEFAULT_WHOLE_STREAM_SIZE_LIMIT: u64 = u64::MAX;
 pub const DEFAULT_PER_FIELD_SIZE_LIMIT: u64 = u64::MAX;
 pub const DEFAULT_HEADERS_SIZE_LIMIT: u64 = 64 * 1024;
 
-// Hard cap on preamble bytes (data before the first boundary). Applied
-// independent of user-supplied `whole_stream` limit so that an attacker
-// cannot force unbounded buffer growth by never sending a boundary, even
-// when constraints are left at their `u64::MAX` defaults.
-pub const MAX_PREAMBLE_SIZE: usize = 32 * 1024;
+// Default limit for preamble bytes (data before the first boundary). Applied
+// independently of the whole-stream limit and configurable through
+// `SizeLimit::preamble`.
+pub const DEFAULT_PREAMBLE_SIZE_LIMIT: u64 = 32 * 1024;
 
 pub const MAX_HEADERS: usize = 32;
 pub const BOUNDARY_EXT: &str = "--";
@@ -116,9 +115,21 @@ fn decode_percent_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
     Some(decoded)
 }
 
-fn decode_value(bytes: &[u8], is_escaped: bool) -> Option<Cow<'_, str>> {
-    if bytes.contains(&b'%') {
-        return Some(String::from_utf8(decode_percent_bytes(bytes)?).ok()?.into());
+fn decode_value(
+    bytes: &[u8],
+    is_escaped: bool,
+    decode_percent_encoding: bool,
+) -> Option<Cow<'_, str>> {
+    if decode_percent_encoding
+        && bytes.contains(&b'%')
+        && let Some(decoded) = decode_percent_bytes(bytes)
+    {
+        let value = String::from_utf8(decoded).ok()?;
+        return if is_escaped {
+            Some(value.replace(r#"\""#, "\"").into())
+        } else {
+            Some(value.into())
+        };
     }
 
     let value = std::str::from_utf8(bytes).ok()?;
@@ -150,7 +161,8 @@ impl ContentDispositionAttr {
     /// Extract `ContentDisposition` Attribute from header.
     ///
     /// Some older clients may not quote the name or filename, so we allow them.
-    /// If they percent-encode the value, we decode it before returning.
+    /// Legacy percent-encoding in `filename` is decoded before returning;
+    /// percent signs in field names are preserved literally.
     pub fn extract_from<'h>(&self, header: &'h [u8]) -> Option<Cow<'h, str>> {
         if self == &Self::FileName
             && let Some(value) = self.extract_extended_from(header)
@@ -195,7 +207,7 @@ impl ContentDispositionAttr {
             };
 
             if key.eq_ignore_ascii_case(prefix) {
-                return decode_value(bytes, is_escaped);
+                return decode_value(bytes, is_escaped, matches!(self, Self::FileName));
             }
         }
 
@@ -399,8 +411,14 @@ mod tests {
         let val = br"form-data; name=my%20field; filename=file%20name.txt";
         let name = ContentDispositionAttr::Name.extract_from(val);
         let filename = ContentDispositionAttr::FileName.extract_from(val);
-        assert_eq!(name.unwrap(), "my field");
+        assert_eq!(name.unwrap(), "my%20field");
         assert_eq!(filename.unwrap(), "file name.txt");
+
+        let val = br#"form-data; name="discount%rate"; filename="100%.txt""#;
+        let name = ContentDispositionAttr::Name.extract_from(val);
+        let filename = ContentDispositionAttr::FileName.extract_from(val);
+        assert_eq!(name.unwrap(), "discount%rate");
+        assert_eq!(filename.unwrap(), "100%.txt");
     }
 
     #[test]
