@@ -14,7 +14,7 @@ jobs:
     name: Check typos
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Check typos
-        uses: crate-ci/typos@master
+        uses: crate-ci/typos@dbe52f72499cd4ab666928e4d14ecfa9ddbb6852 # v1.48.0

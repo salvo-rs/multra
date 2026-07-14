@@ -3,9 +3,7 @@ use std::convert::TryFrom;
 use http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use httparse::Header;
 
-pub(crate) fn convert_raw_headers_to_header_map(
-    raw_headers: &[Header<'_>],
-) -> crate::Result<HeaderMap> {
+pub fn convert_raw_headers_to_header_map(raw_headers: &[Header<'_>]) -> crate::Result<HeaderMap> {
     let mut headers = HeaderMap::with_capacity(raw_headers.len());
 
     for raw_header in raw_headers {
@@ -29,7 +27,7 @@ pub(crate) fn convert_raw_headers_to_header_map(
     Ok(headers)
 }
 
-pub(crate) fn parse_content_type(headers: &HeaderMap) -> Option<mime::Mime> {
+pub fn parse_content_type(headers: &HeaderMap) -> Option<mime::Mime> {
     headers
         .get(header::CONTENT_TYPE)
         .and_then(|val| val.to_str().ok())

@@ -2,25 +2,25 @@ use std::borrow::Cow;
 
 use encoding_rs::Encoding;
 
-pub(crate) const DEFAULT_WHOLE_STREAM_SIZE_LIMIT: u64 = u64::MAX;
-pub(crate) const DEFAULT_PER_FIELD_SIZE_LIMIT: u64 = u64::MAX;
-pub(crate) const DEFAULT_HEADERS_SIZE_LIMIT: u64 = 64 * 1024;
+pub const DEFAULT_WHOLE_STREAM_SIZE_LIMIT: u64 = u64::MAX;
+pub const DEFAULT_PER_FIELD_SIZE_LIMIT: u64 = u64::MAX;
+pub const DEFAULT_HEADERS_SIZE_LIMIT: u64 = 64 * 1024;
 
 // Hard cap on preamble bytes (data before the first boundary). Applied
 // independent of user-supplied `whole_stream` limit so that an attacker
 // cannot force unbounded buffer growth by never sending a boundary, even
 // when constraints are left at their `u64::MAX` defaults.
-pub(crate) const MAX_PREAMBLE_SIZE: usize = 32 * 1024;
+pub const MAX_PREAMBLE_SIZE: usize = 32 * 1024;
 
-pub(crate) const MAX_HEADERS: usize = 32;
-pub(crate) const BOUNDARY_EXT: &str = "--";
+pub const MAX_HEADERS: usize = 32;
+pub const BOUNDARY_EXT: &str = "--";
 #[allow(dead_code)]
-pub(crate) const LF: &str = "\n";
-pub(crate) const CRLF: &str = "\r\n";
-pub(crate) const CRLF_CRLF: &str = "\r\n\r\n";
+pub const LF: &str = "\n";
+pub const CRLF: &str = "\r\n";
+pub const CRLF_CRLF: &str = "\r\n\r\n";
 
-#[derive(PartialEq)]
-pub(crate) enum ContentDispositionAttr {
+#[derive(PartialEq, Eq)]
+pub enum ContentDispositionAttr {
     Name,
     FileName,
 }
@@ -116,7 +116,7 @@ fn decode_percent_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
     Some(decoded)
 }
 
-fn decode_value<'h>(bytes: &'h [u8], is_escaped: bool) -> Option<Cow<'h, str>> {
+fn decode_value(bytes: &[u8], is_escaped: bool) -> Option<Cow<'_, str>> {
     if bytes.contains(&b'%') {
         return Some(String::from_utf8(decode_percent_bytes(bytes)?).ok()?.into());
     }
@@ -147,20 +147,20 @@ fn decode_extended_value(bytes: &[u8]) -> Option<String> {
 }
 
 impl ContentDispositionAttr {
-    /// Extract ContentDisposition Attribute from header.
+    /// Extract `ContentDisposition` Attribute from header.
     ///
     /// Some older clients may not quote the name or filename, so we allow them.
     /// If they percent-encode the value, we decode it before returning.
     pub fn extract_from<'h>(&self, header: &'h [u8]) -> Option<Cow<'h, str>> {
-        if self == &ContentDispositionAttr::FileName
+        if self == &Self::FileName
             && let Some(value) = self.extract_extended_from(header)
         {
             return Some(value);
         }
 
         let prefix = match self {
-            ContentDispositionAttr::Name => &b"name"[..],
-            ContentDispositionAttr::FileName => &b"filename"[..],
+            Self::Name => &b"name"[..],
+            Self::FileName => &b"filename"[..],
         };
         let mut index = 0;
 
@@ -204,8 +204,8 @@ impl ContentDispositionAttr {
 
     fn extract_extended_from<'h>(&self, header: &'h [u8]) -> Option<Cow<'h, str>> {
         let prefix = match self {
-            ContentDispositionAttr::Name => return None,
-            ContentDispositionAttr::FileName => &b"filename*"[..],
+            Self::Name => return None,
+            Self::FileName => &b"filename*"[..],
         };
         let mut index = 0;
 
@@ -254,19 +254,19 @@ mod tests {
         assert_eq!(name.unwrap(), "my_field");
         assert!(filename.is_none());
 
-        let val = br#"form-data; name=my_field  "#;
+        let val = br"form-data; name=my_field  ";
         let name = ContentDispositionAttr::Name.extract_from(val);
         let filename = ContentDispositionAttr::FileName.extract_from(val);
         assert_eq!(name.unwrap(), "my_field");
         assert!(filename.is_none());
 
-        let val = br#"form-data; name  =  my_field  "#;
+        let val = br"form-data; name  =  my_field  ";
         let name = ContentDispositionAttr::Name.extract_from(val);
         let filename = ContentDispositionAttr::FileName.extract_from(val);
         assert_eq!(name.unwrap(), "my_field");
         assert!(filename.is_none());
 
-        let val = br#"form-data; name  =  "#;
+        let val = br"form-data; name  =  ";
         let name = ContentDispositionAttr::Name.extract_from(val);
         let filename = ContentDispositionAttr::FileName.extract_from(val);
         assert_eq!(name.unwrap(), "");
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn test_content_distribution_misordered_fields() {
-        let val = br#"form-data; filename=file-name.txt; name=file"#;
+        let val = br"form-data; filename=file-name.txt; name=file";
         let name = ContentDispositionAttr::Name.extract_from(val);
         let filename = ContentDispositionAttr::FileName.extract_from(val);
         assert_eq!(filename.unwrap(), "file-name.txt");
@@ -334,13 +334,13 @@ mod tests {
 
     #[test]
     fn test_content_disposition_name_unquoted() {
-        let val = br#"form-data; name=my_field"#;
+        let val = br"form-data; name=my_field";
         let name = ContentDispositionAttr::Name.extract_from(val);
         let filename = ContentDispositionAttr::FileName.extract_from(val);
         assert_eq!(name.unwrap(), "my_field");
         assert!(filename.is_none());
 
-        let val = br#"form-data; name=my_field; filename=file-name.txt"#;
+        let val = br"form-data; name=my_field; filename=file-name.txt";
         let name = ContentDispositionAttr::Name.extract_from(val);
         let filename = ContentDispositionAttr::FileName.extract_from(val);
         assert_eq!(name.unwrap(), "my_field");
@@ -361,7 +361,7 @@ mod tests {
         let filename = ContentDispositionAttr::FileName.extract_from(val);
         assert_eq!(filename.unwrap(), "file;name.txt");
 
-        let val = br#"form-data; name=; filename=filename.txt"#;
+        let val = br"form-data; name=; filename=filename.txt";
         let name = ContentDispositionAttr::Name.extract_from(val);
         let filename = ContentDispositionAttr::FileName.extract_from(val);
         assert_eq!(name.unwrap(), "");
@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_content_disposition_percent_decoded_values() {
-        let val = br#"form-data; name=my%20field; filename=file%20name.txt"#;
+        let val = br"form-data; name=my%20field; filename=file%20name.txt";
         let name = ContentDispositionAttr::Name.extract_from(val);
         let filename = ContentDispositionAttr::FileName.extract_from(val);
         assert_eq!(name.unwrap(), "my field");

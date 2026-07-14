@@ -15,9 +15,9 @@ lto = true
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.3"
-futures-util = { version = "0.3", default-features = false }
-tokio = { version = "1", features = ["rt", "time"] }
+libfuzzer-sys = "0.4.13"
+futures-util = { version = "0.3.32", default-features = false }
+tokio = { version = "1.52.3", features = ["rt", "time"] }
 
 [dependencies.multra]
 path = ".."

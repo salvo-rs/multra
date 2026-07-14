@@ -1,19 +1,18 @@
 version: 2
 updates:
   - package-ecosystem: cargo
-    directory: /
+    directories:
+      - /
+      - /fuzz
     schedule:
-      interval: weekly
+      interval: daily
+    versioning-strategy: increase
     commit-message:
       prefix: "deps"
-    labels:
-      - dependencies
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     commit-message:
       prefix: "ci"
-    labels:
-      - ci

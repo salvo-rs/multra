@@ -63,9 +63,9 @@
 //! }
 //! ```
 //!
-//! ## Prevent Denial of Service (DoS) Attack
+//! ## Prevent Denial of Service (`DoS`) Attack
 //!
-//! This crate provides APIs to prevent potential DoS attacks with fine grained
+//! This crate provides APIs to prevent potential `DoS` attacks with fine grained
 //! control. The default constructors leave stream and field size limits
 //! unbounded, so it is recommended to add explicit constraints for untrusted
 //! multipart bodies.
@@ -156,7 +156,7 @@ mod size_limit;
 /// A Result type often returned from methods that can have `multra` errors.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-fn is_boundary_char_no_space(byte: u8) -> bool {
+const fn is_boundary_char_no_space(byte: u8) -> bool {
     byte.is_ascii_alphanumeric()
         || matches!(
             byte,
@@ -164,7 +164,7 @@ fn is_boundary_char_no_space(byte: u8) -> bool {
         )
 }
 
-fn is_boundary_char(byte: u8) -> bool {
+const fn is_boundary_char(byte: u8) -> bool {
     byte == b' ' || is_boundary_char_no_space(byte)
 }
 
@@ -202,6 +202,11 @@ fn validate_boundary(boundary: &str) -> Result<()> {
 /// # }
 /// # run();
 /// ```
+///
+/// # Errors
+///
+/// Returns an error if the value is not a valid `multipart/form-data` content
+/// type, has no boundary parameter, or contains an invalid boundary.
 pub fn parse_boundary<T: AsRef<str>>(content_type: T) -> Result<String> {
     let m = content_type
         .as_ref()

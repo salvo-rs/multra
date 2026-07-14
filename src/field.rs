@@ -1,5 +1,5 @@
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use bytes::{Bytes, BytesMut};
@@ -8,7 +8,6 @@ use futures_util::stream::{Stream, TryStreamExt};
 use http::header::HeaderMap;
 #[cfg(feature = "json")]
 use serde::de::DeserializeOwned;
-use spin::mutex::spin::SpinMutex as Mutex;
 
 use crate::content_disposition::ContentDisposition;
 use crate::multipart::{MultipartState, StreamingStage};
@@ -79,22 +78,26 @@ impl<'r> Field<'r> {
     }
 
     /// The field name found in the [`Content-Disposition`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition) header.
+    #[must_use]
     pub fn name(&self) -> Option<&str> {
         self.content_disposition.field_name.as_deref()
     }
 
     /// The file name found in the [`Content-Disposition`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition) header.
+    #[must_use]
     pub fn file_name(&self) -> Option<&str> {
         self.content_disposition.file_name.as_deref()
     }
 
     /// Get the content type of the field.
-    pub fn content_type(&self) -> Option<&mime::Mime> {
+    #[must_use]
+    pub const fn content_type(&self) -> Option<&mime::Mime> {
         self.content_type.as_ref()
     }
 
     /// Get a map of headers as [`HeaderMap`].
-    pub fn headers(&self) -> &HeaderMap {
+    #[must_use]
+    pub const fn headers(&self) -> &HeaderMap {
         &self.headers
     }
 
@@ -122,6 +125,11 @@ impl<'r> Field<'r> {
     /// # }
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run());
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the input stream cannot be read, the multipart data
+    /// is malformed, or a configured size limit is exceeded.
     pub async fn bytes(self) -> crate::Result<Bytes> {
         let mut buf = BytesMut::new();
 
@@ -160,6 +168,11 @@ impl<'r> Field<'r> {
     /// # }
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run());
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the input stream cannot be read, the multipart data
+    /// is malformed, or a configured size limit is exceeded.
     pub async fn chunk(&mut self) -> crate::Result<Option<Bytes>> {
         self.try_next().await
     }
@@ -237,6 +250,10 @@ impl<'r> Field<'r> {
     /// # }
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run());
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the field cannot be read completely.
     pub async fn text(self) -> crate::Result<String> {
         self.text_with_charset("utf-8").await
     }
@@ -248,7 +265,7 @@ impl<'r> Field<'r> {
     /// You can provide a default encoding for decoding the raw message, while
     /// the `charset` parameter of `Content-Type` header is still prioritized.
     /// For more information about the possible encoding name, please go to
-    /// [encoding_rs] docs.
+    /// [`encoding_rs`] docs.
     ///
     /// # Examples
     ///
@@ -272,12 +289,15 @@ impl<'r> Field<'r> {
     /// # }
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run());
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the field cannot be read completely.
     pub async fn text_with_charset(self, default_encoding: &str) -> crate::Result<String> {
         let encoding_name = self
             .content_type()
             .and_then(|mime| mime.get_param(mime::CHARSET))
-            .map(|charset| charset.as_str())
-            .unwrap_or(default_encoding);
+            .map_or(default_encoding, |charset| charset.as_str());
 
         let encoding = Encoding::for_label(encoding_name.as_bytes()).unwrap_or(UTF_8);
         let bytes = self.bytes().await?;
@@ -308,7 +328,8 @@ impl<'r> Field<'r> {
     /// # }
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run());
     /// ```
-    pub fn index(&self) -> usize {
+    #[must_use]
+    pub const fn index(&self) -> usize {
         self.idx
     }
 }
@@ -316,16 +337,16 @@ impl<'r> Field<'r> {
 impl Stream for Field<'_> {
     type Item = Result<Bytes, Error>;
 
+    #[allow(clippy::significant_drop_tightening)] // Parsing needs one guard for the full poll.
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.done {
             return Poll::Ready(None);
         }
 
-        debug_assert!(self.state.try_lock().is_some(), "expected exclusive lock");
+        debug_assert!(self.state.try_lock().is_ok(), "expected exclusive lock");
         let state = self.state.clone();
-        let mut lock = match state.try_lock() {
-            Some(lock) => lock,
-            None => return Poll::Ready(Some(Err(Error::LockFailure))),
+        let Ok(mut lock) = state.try_lock() else {
+            return Poll::Ready(Some(Err(Error::LockFailure)));
         };
 
         let state = &mut *lock;

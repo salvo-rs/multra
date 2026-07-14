@@ -1,10 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use futures_util::future;
 use futures_util::stream::{Stream, TryStreamExt};
-use spin::mutex::spin::SpinMutex as Mutex;
 #[cfg(feature = "tokio-io")]
 use {tokio::io::AsyncRead, tokio_util::io::ReaderStream};
 
@@ -77,7 +76,7 @@ pub struct Multipart<'r> {
 }
 
 #[derive(Debug)]
-pub(crate) struct MultipartState<'r> {
+pub struct MultipartState<'r> {
     pub(crate) buffer: StreamBuffer<'r>,
     pub(crate) boundary_bytes: Vec<u8>,
     pub(crate) field_boundary_bytes: Vec<u8>,
@@ -90,7 +89,7 @@ pub(crate) struct MultipartState<'r> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StreamingStage {
+pub enum StreamingStage {
     FindingFirstBoundary,
     ReadingBoundary,
     DeterminingBoundaryType,
@@ -132,7 +131,7 @@ impl<'r> Multipart<'r> {
         let field_boundary_bytes =
             format!("{}{}{}", constants::CRLF, constants::BOUNDARY_EXT, boundary).into_bytes();
         let stream = stream
-            .map_ok(|b| b.into())
+            .map_ok(Into::into)
             .map_err(|err| Error::StreamReadFailed(err.into()));
 
         Multipart {
@@ -237,6 +236,12 @@ impl<'r> Multipart<'r> {
     /// Any previous `Field` returned by this method must be dropped before
     /// calling this method or [`Multipart::next_field_with_idx()`] again. See
     /// [field-exclusivity](#field-exclusivity) for details.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a previous field is still alive, the input stream
+    /// cannot be read, the multipart data is malformed, or a configured
+    /// constraint is violated.
     pub async fn next_field(&mut self) -> Result<Option<Field<'r>>> {
         future::poll_fn(|cx| self.poll_next_field(cx)).await
     }
@@ -247,7 +252,12 @@ impl<'r> Multipart<'r> {
     /// calling this method or [`Multipart::next_field_with_idx()`] again. See
     /// [field-exclusivity](#field-exclusivity) for details.
     ///
-    /// This method is available since version 2.1.0.
+    /// # Errors
+    ///
+    /// Returns an error if a previous field is still alive, the input stream
+    /// cannot be read, the multipart data is malformed, or a configured
+    /// constraint is violated.
+    #[allow(clippy::too_many_lines)] // The stages form one explicit parser state machine.
     pub fn poll_next_field(&mut self, cx: &mut Context<'_>) -> Poll<Result<Option<Field<'r>>>> {
         // This is consistent as we have an `&mut` and `Field` is not `Clone`.
         // Here, we are guaranteeing that the returned `Field` will be the
@@ -259,10 +269,9 @@ impl<'r> Multipart<'r> {
         }
 
         debug_assert_eq!(Arc::strong_count(&self.state), 1);
-        debug_assert!(self.state.try_lock().is_some(), "expected exclusive lock");
-        let mut lock = match self.state.try_lock() {
-            Some(lock) => lock,
-            None => return Poll::Ready(Err(Error::LockFailure)),
+        debug_assert!(self.state.try_lock().is_ok(), "expected exclusive lock");
+        let Ok(mut lock) = self.state.try_lock() else {
+            return Poll::Ready(Err(Error::LockFailure));
         };
 
         let state = &mut *lock;
@@ -273,20 +282,19 @@ impl<'r> Multipart<'r> {
         state.buffer.poll_stream(cx)?;
 
         if state.stage == StreamingStage::FindingFirstBoundary {
-            match state.buffer.read_to(&state.boundary_bytes) {
-                Some(_) => state.stage = StreamingStage::ReadingBoundary,
-                None => {
-                    // Hard cap on preamble: prevents an attacker from forcing
-                    // unbounded memory growth by never sending the first
-                    // boundary marker, even if `whole_stream_size_limit` is
-                    // left at its default of `u64::MAX`.
-                    if state.buffer.buf.len() > constants::MAX_PREAMBLE_SIZE {
-                        return Poll::Ready(Err(Error::IncompleteStream));
-                    }
-                    state.buffer.poll_stream(cx)?;
-                    if state.buffer.eof {
-                        return Poll::Ready(Err(Error::IncompleteStream));
-                    }
+            if state.buffer.read_to(&state.boundary_bytes).is_some() {
+                state.stage = StreamingStage::ReadingBoundary;
+            } else {
+                // Hard cap on preamble: prevents an attacker from forcing
+                // unbounded memory growth by never sending the first
+                // boundary marker, even if `whole_stream_size_limit` is
+                // left at its default of `u64::MAX`.
+                if state.buffer.buf.len() > constants::MAX_PREAMBLE_SIZE {
+                    return Poll::Ready(Err(Error::IncompleteStream));
+                }
+                state.buffer.poll_stream(cx)?;
+                if state.buffer.eof {
+                    return Poll::Ready(Err(Error::IncompleteStream));
                 }
             }
         }
@@ -324,15 +332,12 @@ impl<'r> Multipart<'r> {
         }
 
         if state.stage == StreamingStage::ReadingBoundary {
-            let boundary_bytes = match state.buffer.read_exact(state.boundary_bytes.len()) {
-                Some(bytes) => bytes,
-                None => {
-                    return if state.buffer.eof {
-                        Poll::Ready(Err(Error::IncompleteStream))
-                    } else {
-                        Poll::Pending
-                    };
-                }
+            let Some(boundary_bytes) = state.buffer.read_exact(state.boundary_bytes.len()) else {
+                return if state.buffer.eof {
+                    Poll::Ready(Err(Error::IncompleteStream))
+                } else {
+                    Poll::Pending
+                };
             };
 
             if &boundary_bytes[..] == state.boundary_bytes.as_slice() {
@@ -344,23 +349,19 @@ impl<'r> Multipart<'r> {
 
         if state.stage == StreamingStage::DeterminingBoundaryType {
             let ext_len = constants::BOUNDARY_EXT.len();
-            let next_bytes = match state.buffer.peek_exact(ext_len) {
-                Some(bytes) => bytes,
-                None => {
-                    return if state.buffer.eof {
-                        Poll::Ready(Err(Error::IncompleteStream))
-                    } else {
-                        Poll::Pending
-                    };
-                }
+            let Some(next_bytes) = state.buffer.peek_exact(ext_len) else {
+                return if state.buffer.eof {
+                    Poll::Ready(Err(Error::IncompleteStream))
+                } else {
+                    Poll::Pending
+                };
             };
 
             if next_bytes == constants::BOUNDARY_EXT.as_bytes() {
                 state.stage = StreamingStage::Eof;
                 return Poll::Ready(Ok(None));
-            } else {
-                state.stage = StreamingStage::ReadingTransportPadding;
             }
+            state.stage = StreamingStage::ReadingTransportPadding;
         }
 
         if state.stage == StreamingStage::ReadingTransportPadding {
@@ -373,15 +374,12 @@ impl<'r> Multipart<'r> {
             }
 
             let crlf_len = constants::CRLF.len();
-            let crlf_bytes = match state.buffer.read_exact(crlf_len) {
-                Some(bytes) => bytes,
-                None => {
-                    return if state.buffer.eof {
-                        Poll::Ready(Err(Error::IncompleteStream))
-                    } else {
-                        Poll::Pending
-                    };
-                }
+            let Some(crlf_bytes) = state.buffer.read_exact(crlf_len) else {
+                return if state.buffer.eof {
+                    Poll::Ready(Err(Error::IncompleteStream))
+                } else {
+                    Poll::Pending
+                };
             };
 
             if &crlf_bytes[..] == constants::CRLF.as_bytes() {
@@ -393,21 +391,19 @@ impl<'r> Multipart<'r> {
 
         if state.stage == StreamingStage::ReadingFieldHeaders {
             let headers_limit = state.constraints.size_limit.headers;
-            let header_bytes = match state.buffer.read_until(constants::CRLF_CRLF.as_bytes()) {
-                Some(bytes) => bytes,
-                None => {
-                    if state.buffer.buf.len() as u64 > headers_limit {
-                        return Poll::Ready(Err(Error::HeadersSizeExceeded {
-                            limit: headers_limit,
-                        }));
-                    }
-
-                    return if state.buffer.eof {
-                        Poll::Ready(Err(Error::IncompleteStream))
-                    } else {
-                        Poll::Pending
-                    };
+            let Some(header_bytes) = state.buffer.read_until(constants::CRLF_CRLF.as_bytes())
+            else {
+                if state.buffer.buf.len() as u64 > headers_limit {
+                    return Poll::Ready(Err(Error::HeadersSizeExceeded {
+                        limit: headers_limit,
+                    }));
                 }
+
+                return if state.buffer.eof {
+                    Poll::Ready(Err(Error::IncompleteStream))
+                } else {
+                    Poll::Pending
+                };
             };
 
             if header_bytes.len() as u64 > headers_limit {
@@ -445,7 +441,9 @@ impl<'r> Multipart<'r> {
                 .size_limit
                 .extract_size_limit_for(content_disposition.field_name.as_deref());
 
-            state.curr_field_name = content_disposition.field_name.clone();
+            state
+                .curr_field_name
+                .clone_from(&content_disposition.field_name);
             state.curr_field_size_limit = field_size_limit;
             state.curr_field_size_counter = 0;
 
@@ -464,8 +462,8 @@ impl<'r> Multipart<'r> {
         Poll::Pending
     }
 
-    /// Yields the next [`Field`] with their positioning index as a tuple
-    /// `(`[`usize`]`, `[`Field`]`)`.
+    /// Yields the next [`Field`] with its positioning index as
+    /// <code>([usize], [Field])</code>.
     ///
     /// Any previous `Field` returned by this method must be dropped before
     /// calling this method or [`Multipart::next_field()`] again. See
@@ -493,6 +491,10 @@ impl<'r> Multipart<'r> {
     /// # }
     /// # tokio::runtime::Runtime::new().unwrap().block_on(run());
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns the same errors as [`Self::next_field`].
     pub async fn next_field_with_idx(&mut self) -> Result<Option<(usize, Field<'r>)>> {
         self.next_field()
             .await

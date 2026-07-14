@@ -129,7 +129,7 @@ async fn test_multipart_header() {
         "\r\n\r\n--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY--\r\n",
     ];
 
-    for data in should_pass.iter() {
+    for data in &should_pass {
         let stream = str_stream(data);
         let mut m = Multipart::new(stream, "X-BOUNDARY");
 
@@ -159,7 +159,6 @@ async fn test_multipart_constraint_allowed_fields_normal() {
 }
 
 #[tokio::test]
-#[should_panic]
 async fn test_multipart_constraint_allowed_fields_unknown_field() {
     let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_file_field\"; filename=\"a-text-file.txt\"\r\nContent-Type: text/plain\r\n\r\nHello world\nHello\r\nWorld\rAgain\r\n--X-BOUNDARY--\r\n";
     let stream = str_stream(data);
@@ -168,8 +167,12 @@ async fn test_multipart_constraint_allowed_fields_unknown_field() {
     let mut m = Multipart::with_constraints(stream, "X-BOUNDARY", constraints);
 
     assert!(m.next_field().await.unwrap().is_some());
-    assert!(m.next_field().await.unwrap().is_some());
-    assert!(m.next_field().await.unwrap().is_none());
+    assert!(matches!(
+        m.next_field().await,
+        Err(multra::Error::UnknownField {
+            field_name: Some(name)
+        }) if name == "my_file_field"
+    ));
 }
 
 #[tokio::test]
@@ -194,7 +197,6 @@ async fn test_multipart_constraint_size_limit_whole_stream() {
 }
 
 #[tokio::test]
-#[should_panic]
 async fn test_multipart_constraint_size_limit_whole_stream_size_exceeded() {
     let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_file_field\"; filename=\"a-text-file.txt\"\r\nContent-Type: text/plain\r\n\r\nHello world\nHello\r\nWorld\rAgain\r\n--X-BOUNDARY--\r\n";
     let stream = str_stream(data);
@@ -206,8 +208,10 @@ async fn test_multipart_constraint_size_limit_whole_stream_size_exceeded() {
     let mut m = Multipart::with_constraints(stream, "X-BOUNDARY", constraints);
 
     assert!(m.next_field().await.unwrap().is_some());
-    assert!(m.next_field().await.unwrap().is_some());
-    assert!(m.next_field().await.unwrap().is_none());
+    assert!(matches!(
+        m.next_field().await,
+        Err(multra::Error::StreamSizeExceeded { limit: 100 })
+    ));
 }
 
 #[tokio::test]
@@ -232,7 +236,6 @@ async fn test_multipart_constraint_size_limit_per_field() {
 }
 
 #[tokio::test]
-#[should_panic]
 async fn test_multipart_constraint_size_limit_per_field_size_exceeded() {
     let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_file_field\"; filename=\"a-text-file.txt\"\r\nContent-Type: text/plain\r\n\r\nHello world\nHello\r\nWorld\rAgain\r\n--X-BOUNDARY--\r\n";
     let stream = str_stream(data);
@@ -245,7 +248,13 @@ async fn test_multipart_constraint_size_limit_per_field_size_exceeded() {
 
     assert!(m.next_field().await.unwrap().is_some());
     assert!(m.next_field().await.unwrap().is_some());
-    assert!(m.next_field().await.unwrap().is_none());
+    assert!(matches!(
+        m.next_field().await,
+        Err(multra::Error::FieldSizeExceeded {
+            limit: 10,
+            field_name: Some(name)
+        }) if name == "my_file_field"
+    ));
 }
 
 #[tokio::test]
@@ -304,7 +313,6 @@ async fn test_multipart_constraint_size_limit_headers_size_exceeded() {
 }
 
 #[tokio::test]
-#[should_panic]
 async fn test_multipart_constraint_size_limit_for_field_size_exceeded() {
     let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_file_field\"; filename=\"a-text-file.txt\"\r\nContent-Type: text/plain\r\n\r\nHello world\nHello\r\nWorld\rAgain\r\n--X-BOUNDARY--\r\n";
     let stream = str_stream(data);
@@ -323,7 +331,13 @@ async fn test_multipart_constraint_size_limit_for_field_size_exceeded() {
 
     assert!(m.next_field().await.unwrap().is_some());
     assert!(m.next_field().await.unwrap().is_some());
-    assert!(m.next_field().await.unwrap().is_none());
+    assert!(matches!(
+        m.next_field().await,
+        Err(multra::Error::FieldSizeExceeded {
+            limit: 10,
+            field_name: Some(name)
+        }) if name == "my_file_field"
+    ));
 }
 
 // Security regression: a peer that never sends a boundary marker must not
@@ -339,8 +353,7 @@ async fn test_security_unbounded_preamble_rejected() {
     let result = m.next_field().await;
     assert!(
         matches!(result, Err(multra::Error::IncompleteStream)),
-        "expected IncompleteStream once preamble cap is exceeded, got {:?}",
-        result
+        "expected IncompleteStream once preamble cap is exceeded, got {result:?}"
     );
 }
 

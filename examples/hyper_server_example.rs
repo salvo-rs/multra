@@ -29,7 +29,7 @@ async fn handle(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infalli
     if let Err(err) = process_multipart(req.into_body(), boundary.unwrap()).await {
         return Ok(Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Full::from(format!("INTERNAL SERVER ERROR: {}", err)))
+            .body(Full::from(format!("INTERNAL SERVER ERROR: {err}")))
             .unwrap());
     }
 
@@ -66,10 +66,7 @@ async fn process_multipart(body: Incoming, boundary: String) -> multra::Result<(
         // Get the "Content-Type" header as `mime::Mime` type.
         let content_type = field.content_type();
 
-        println!(
-            "Name: {:?}, FileName: {:?}, Content-Type: {:?}",
-            name, file_name, content_type
-        );
+        println!("Name: {name:?}, FileName: {file_name:?}, Content-Type: {content_type:?}");
 
         // Process the field data chunks e.g. store them in a file.
         let mut field_bytes_len = 0;
@@ -78,7 +75,7 @@ async fn process_multipart(body: Incoming, boundary: String) -> multra::Result<(
             field_bytes_len += field_chunk.len();
         }
 
-        println!("Field Bytes Length: {:?}", field_bytes_len);
+        println!("Field Bytes Length: {field_bytes_len:?}");
     }
 
     Ok(())
@@ -88,7 +85,7 @@ async fn process_multipart(body: Incoming, boundary: String) -> multra::Result<(
 async fn main() {
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    println!("Server running at: {}", addr);
+    println!("Server running at: {addr}");
 
     let service = hyper::service::service_fn(handle);
 
@@ -100,7 +97,7 @@ async fn main() {
                 .serve_connection(socket, service)
                 .await
             {
-                eprintln!("server error: {}", e);
+                eprintln!("server error: {e}");
             }
         });
     }

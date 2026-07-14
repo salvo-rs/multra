@@ -13,19 +13,26 @@ permissions:
 
 env:
   RUSTFLAGS: -Dwarnings
+  RUSTDOCFLAGS: -Dwarnings
 
 jobs:
   build_and_test:
-    name: Build and test
+    name: Build and test (Rust ${{ matrix.toolchain }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain:
+          - "1.94.0"
+          - stable
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-    - name: Install stable
-      uses: dtolnay/rust-toolchain@stable
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       with:
-        toolchain: stable
+        toolchain: ${{ matrix.toolchain }}
 
     - name: check
       run: cargo check --all --bins --examples --all-features
@@ -38,10 +45,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
     - name: Install stable
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       with:
         toolchain: stable
 
@@ -52,16 +59,16 @@ jobs:
     name: Checking fmt, clippy, and docs
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
     - name: Install stable with components
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
       with:
         toolchain: stable
         components: clippy,rustfmt
 
     - name: clippy
-      run: cargo clippy --tests --examples --bins -- -D warnings
+      run: cargo clippy --all-targets --all-features -- -D warnings -W clippy::pedantic -W clippy::nursery
 
     - name: fmt
       run: cargo fmt --all -- --check

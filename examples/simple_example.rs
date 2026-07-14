@@ -9,7 +9,7 @@ use multra::Multipart;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate a byte stream and the boundary from somewhere e.g. server request
     // body.
-    let (stream, boundary) = get_byte_stream_from_somewhere().await;
+    let (stream, boundary) = get_byte_stream_from_somewhere();
 
     // Create a `Multipart` instance from that byte stream and the boundary.
     let mut multipart = Multipart::new(stream, boundary);
@@ -21,11 +21,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Get the field's filename if provided in "Content-Disposition" header.
         let file_name = field.file_name();
 
-        println!("Name: {:?}, File Name: {:?}", name, file_name);
+        println!("Name: {name:?}, File Name: {file_name:?}");
 
         // Read field content as text.
         let content = field.text().await?;
-        println!("Content: {:?}", content);
+        println!("Content: {content:?}");
     }
 
     Ok(())
@@ -33,8 +33,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Generate a byte stream and the boundary from somewhere e.g. server request
 // body.
-async fn get_byte_stream_from_somewhere()
--> (impl Stream<Item = Result<Bytes, Infallible>>, &'static str) {
+fn get_byte_stream_from_somewhere() -> (impl Stream<Item = Result<Bytes, Infallible>>, &'static str)
+{
     let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_file_field\"; filename=\"a-text-file.txt\"\r\nContent-Type: text/plain\r\n\r\nHello world\nHello\r\nWorld\rAgain\r\n--X-BOUNDARY--\r\n";
     let stream = futures_util::stream::iter(
         data.chars()

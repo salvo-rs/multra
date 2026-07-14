@@ -75,47 +75,43 @@ impl Debug for Error {
 impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Error::UnknownField { field_name } => {
+            Self::UnknownField { field_name } => {
                 let name = field_name.as_deref().unwrap_or("<unknown>");
-                write!(f, "unknown field received: {:?}", name)
+                write!(f, "unknown field received: {name:?}")
             }
-            Error::IncompleteFieldData { field_name } => {
+            Self::IncompleteFieldData { field_name } => {
                 let name = field_name.as_deref().unwrap_or("<unknown>");
-                write!(f, "field {:?} received with incomplete data", name)
+                write!(f, "field {name:?} received with incomplete data")
             }
-            Error::DecodeHeaderName { name, .. } => {
-                write!(f, "failed to decode field's raw header name: {:?}", name)
+            Self::DecodeHeaderName { name, .. } => {
+                write!(f, "failed to decode field's raw header name: {name:?}")
             }
-            Error::DecodeHeaderValue { .. } => {
+            Self::DecodeHeaderValue { .. } => {
                 write!(f, "failed to decode field's raw header value")
             }
-            Error::FieldSizeExceeded { limit, field_name } => {
+            Self::FieldSizeExceeded { limit, field_name } => {
                 let name = field_name.as_deref().unwrap_or("<unknown>");
-                write!(
-                    f,
-                    "field {:?} exceeded the size limit: {} bytes",
-                    name, limit
-                )
+                write!(f, "field {name:?} exceeded the size limit: {limit} bytes")
             }
-            Error::StreamSizeExceeded { limit } => {
-                write!(f, "stream size exceeded limit: {} bytes", limit)
+            Self::StreamSizeExceeded { limit } => {
+                write!(f, "stream size exceeded limit: {limit} bytes")
             }
-            Error::HeadersSizeExceeded { limit } => {
-                write!(f, "field headers exceeded limit: {} bytes", limit)
+            Self::HeadersSizeExceeded { limit } => {
+                write!(f, "field headers exceeded limit: {limit} bytes")
             }
-            Error::ReadHeaderFailed(_) => write!(f, "failed to read headers"),
-            Error::StreamReadFailed(_) => write!(f, "failed to read stream"),
-            Error::DecodeContentType(_) => write!(f, "failed to decode Content-Type"),
-            Error::IncompleteHeaders => write!(f, "failed to read field complete headers"),
-            Error::IncompleteStream => write!(f, "incomplete multipart stream"),
-            Error::LockFailure => write!(f, "failed to lock multipart state"),
-            Error::NoMultipart => write!(f, "Content-Type is not multipart/form-data"),
-            Error::NoBoundary => write!(f, "multipart boundary not found in Content-Type"),
-            Error::InvalidBoundary { boundary } => {
-                write!(f, "invalid multipart boundary: {:?}", boundary)
+            Self::ReadHeaderFailed(_) => write!(f, "failed to read headers"),
+            Self::StreamReadFailed(_) => write!(f, "failed to read stream"),
+            Self::DecodeContentType(_) => write!(f, "failed to decode Content-Type"),
+            Self::IncompleteHeaders => write!(f, "failed to read field complete headers"),
+            Self::IncompleteStream => write!(f, "incomplete multipart stream"),
+            Self::LockFailure => write!(f, "failed to lock multipart state"),
+            Self::NoMultipart => write!(f, "Content-Type is not multipart/form-data"),
+            Self::NoBoundary => write!(f, "multipart boundary not found in Content-Type"),
+            Self::InvalidBoundary { boundary } => {
+                write!(f, "invalid multipart boundary: {boundary:?}")
             }
             #[cfg(feature = "json")]
-            Error::DecodeJson(_) => write!(f, "failed to decode field data as JSON"),
+            Self::DecodeJson(_) => write!(f, "failed to decode field data as JSON"),
         }
     }
 }
@@ -123,24 +119,24 @@ impl Display for Error {
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Error::ReadHeaderFailed(e) => Some(e),
-            Error::DecodeHeaderName { cause, .. } => Some(cause.as_ref()),
-            Error::DecodeHeaderValue { cause, .. } => Some(cause.as_ref()),
-            Error::StreamReadFailed(e) => Some(e.as_ref()),
-            Error::DecodeContentType(e) => Some(e),
+            Self::ReadHeaderFailed(e) => Some(e),
+            Self::DecodeHeaderName { cause, .. } => Some(cause.as_ref()),
+            Self::DecodeHeaderValue { cause, .. } => Some(cause.as_ref()),
+            Self::StreamReadFailed(e) => Some(e.as_ref()),
+            Self::DecodeContentType(e) => Some(e),
             #[cfg(feature = "json")]
-            Error::DecodeJson(e) => Some(e),
-            Error::UnknownField { .. }
-            | Error::IncompleteFieldData { .. }
-            | Error::IncompleteHeaders
-            | Error::IncompleteStream
-            | Error::FieldSizeExceeded { .. }
-            | Error::StreamSizeExceeded { .. }
-            | Error::HeadersSizeExceeded { .. }
-            | Error::LockFailure
-            | Error::NoMultipart
-            | Error::NoBoundary
-            | Error::InvalidBoundary { .. } => None,
+            Self::DecodeJson(e) => Some(e),
+            Self::UnknownField { .. }
+            | Self::IncompleteFieldData { .. }
+            | Self::IncompleteHeaders
+            | Self::IncompleteStream
+            | Self::FieldSizeExceeded { .. }
+            | Self::StreamSizeExceeded { .. }
+            | Self::HeadersSizeExceeded { .. }
+            | Self::LockFailure
+            | Self::NoMultipart
+            | Self::NoBoundary
+            | Self::InvalidBoundary { .. } => None,
         }
     }
 }

@@ -50,16 +50,14 @@ fn match_padding_and_crlf(bytes: &[u8], eof: bool, allow_eof: bool) -> BoundaryM
 fn match_boundary_suffix(buf: &[u8], suffix_start: usize, eof: bool) -> BoundaryMatch {
     let suffix = &buf[suffix_start..];
     match suffix {
-        [] if !eof => BoundaryMatch::Partial,
-        [] => BoundaryMatch::Invalid,
-        [b'-'] if !eof => BoundaryMatch::Partial,
+        [] | [b'-'] if !eof => BoundaryMatch::Partial,
         [b'-', b'-', rest @ ..] => match_padding_and_crlf(rest, eof, true),
-        [b'-', ..] => BoundaryMatch::Invalid,
+        [] | [b'-', ..] => BoundaryMatch::Invalid,
         _ => match_padding_and_crlf(suffix, eof, false),
     }
 }
 
-pub(crate) struct StreamBuffer<'r> {
+pub struct StreamBuffer<'r> {
     pub(crate) eof: bool,
     pub(crate) buf: BytesMut,
     pub(crate) stream: Pin<Box<dyn Stream<Item = Result<Bytes, crate::Error>> + Send + 'r>>,
@@ -126,7 +124,7 @@ impl<'r> StreamBuffer<'r> {
         }
     }
 
-    pub fn peek_exact(&mut self, size: usize) -> Option<&[u8]> {
+    pub fn peek_exact(&self, size: usize) -> Option<&[u8]> {
         self.buf.get(..size)
     }
 
@@ -140,15 +138,12 @@ impl<'r> StreamBuffer<'r> {
     }
 
     pub fn advance_past_transport_padding(&mut self) -> bool {
-        match self.buf.iter().position(|b| *b != b' ' && *b != b'\t') {
-            Some(pos) => {
-                self.buf.advance(pos);
-                true
-            }
-            None => {
-                self.buf.clear();
-                false
-            }
+        if let Some(pos) = self.buf.iter().position(|b| *b != b' ' && *b != b'\t') {
+            self.buf.advance(pos);
+            true
+        } else {
+            self.buf.clear();
+            false
         }
     }
 
@@ -161,7 +156,7 @@ impl<'r> StreamBuffer<'r> {
         if self.buf.is_empty() && self.eof {
             trace!("empty buffer && EOF");
             return Err(crate::Error::IncompleteFieldData {
-                field_name: field_name.map(|s| s.to_owned()),
+                field_name: field_name.map(ToOwned::to_owned),
             });
         } else if self.buf.is_empty() {
             return Ok(None);
@@ -196,7 +191,7 @@ impl<'r> StreamBuffer<'r> {
         if self.eof {
             trace!("no new field found: EOF. terminating");
             return Err(crate::Error::IncompleteFieldData {
-                field_name: field_name.map(|s| s.to_owned()),
+                field_name: field_name.map(ToOwned::to_owned),
             });
         }
 
