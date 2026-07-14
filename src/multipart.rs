@@ -372,18 +372,21 @@ impl<'r> Multipart<'r> {
         state.buffer.poll_stream(cx)?;
 
         if state.stage == StreamingStage::FindingFirstBoundary {
+            let preamble_limit = state.constraints.size_limit.preamble;
             if let Some(preamble) = state.buffer.read_to(&state.boundary_bytes) {
-                if preamble.len() > constants::MAX_PREAMBLE_SIZE {
-                    return Poll::Ready(Err(Error::IncompleteStream));
+                if preamble.len() as u64 > preamble_limit {
+                    return Poll::Ready(Err(Error::PreambleSizeExceeded {
+                        limit: preamble_limit,
+                    }));
                 }
                 state.stage = StreamingStage::ReadingBoundary;
             } else {
-                // Hard cap on preamble: prevents an attacker from forcing
-                // unbounded memory growth by never sending the first
-                // boundary marker, even if `whole_stream_size_limit` is
-                // left at its default of `u64::MAX`.
-                if state.buffer.buf.len() > constants::MAX_PREAMBLE_SIZE {
-                    return Poll::Ready(Err(Error::IncompleteStream));
+                // The independent preamble limit prevents unbounded buffer
+                // growth when the whole-stream limit is left unbounded.
+                if state.buffer.buf.len() as u64 > preamble_limit {
+                    return Poll::Ready(Err(Error::PreambleSizeExceeded {
+                        limit: preamble_limit,
+                    }));
                 }
                 state.buffer.poll_stream(cx)?;
                 if state.buffer.eof {

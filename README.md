@@ -78,6 +78,8 @@ async fn get_byte_stream_from_somewhere() -> (impl Stream<Item = Result<Bytes, I
 size limits. For untrusted uploads, prefer the constrained constructors.
 Use `Multipart::try_new()` or `Multipart::try_with_constraints()` when the
 boundary has not already been validated by `multra::parse_boundary()`.
+The preamble limit defaults to 32 KiB and can be changed with
+`SizeLimit::preamble()` when MIME compatibility requires a larger value.
 
 ## Prevent Denial of Service (DoS) Attacks
 

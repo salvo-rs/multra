@@ -40,6 +40,10 @@ pub enum Error {
     /// The incoming stream size exceeded the maximum limit.
     StreamSizeExceeded { limit: u64 },
 
+    /// The data before the first multipart boundary exceeded the maximum
+    /// limit.
+    PreambleSizeExceeded { limit: u64 },
+
     /// The incoming field headers exceeded the maximum limit.
     HeadersSizeExceeded { limit: u64 },
 
@@ -91,6 +95,9 @@ impl Display for Error {
             Self::StreamSizeExceeded { limit } => {
                 write!(f, "stream size exceeded limit: {limit} bytes")
             }
+            Self::PreambleSizeExceeded { limit } => {
+                write!(f, "multipart preamble exceeded limit: {limit} bytes")
+            }
             Self::HeadersSizeExceeded { limit } => {
                 write!(f, "field headers exceeded limit: {limit} bytes")
             }
@@ -127,6 +134,7 @@ impl std::error::Error for Error {
             | Self::IncompleteStream
             | Self::FieldSizeExceeded { .. }
             | Self::StreamSizeExceeded { .. }
+            | Self::PreambleSizeExceeded { .. }
             | Self::HeadersSizeExceeded { .. }
             | Self::LockFailure
             | Self::NoMultipart
@@ -178,6 +186,10 @@ impl PartialEq for Error {
             (
                 Self::StreamSizeExceeded { limit: left },
                 Self::StreamSizeExceeded { limit: right },
+            )
+            | (
+                Self::PreambleSizeExceeded { limit: left },
+                Self::PreambleSizeExceeded { limit: right },
             )
             | (
                 Self::HeadersSizeExceeded { limit: left },
