@@ -80,6 +80,11 @@ Use `Multipart::try_new()` or `Multipart::try_with_constraints()` when the
 boundary has not already been validated by `multra::parse_boundary()`.
 The preamble limit defaults to 32 KiB and can be changed with
 `SizeLimit::preamble()` when MIME compatibility requires a larger value.
+Each boundary's transport padding (spaces and tabs following its marker) is
+limited to 8 KiB by default, independently of field and whole-stream limits.
+Use `SizeLimit::boundary_padding()` to adjust this limit. This applies to
+opening, intermediate, and closing boundaries; excess padding returns
+`Error::BoundaryPaddingSizeExceeded` rather than being treated as field data.
 
 ## Prevent Denial of Service (DoS) Attacks
 

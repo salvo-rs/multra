@@ -47,6 +47,9 @@ pub enum Error {
     /// The incoming field headers exceeded the maximum limit.
     HeadersSizeExceeded { limit: u64 },
 
+    /// A boundary's transport padding exceeded the maximum limit.
+    BoundaryPaddingSizeExceeded { limit: u64 },
+
     /// Stream read failed.
     StreamReadFailed(BoxError),
 
@@ -101,6 +104,12 @@ impl Display for Error {
             Self::HeadersSizeExceeded { limit } => {
                 write!(f, "field headers exceeded limit: {limit} bytes")
             }
+            Self::BoundaryPaddingSizeExceeded { limit } => {
+                write!(
+                    f,
+                    "boundary transport padding exceeded limit: {limit} bytes"
+                )
+            }
             Self::ReadHeaderFailed(_) => write!(f, "failed to read headers"),
             Self::StreamReadFailed(_) => write!(f, "failed to read stream"),
             Self::DecodeContentType(_) => write!(f, "failed to decode Content-Type"),
@@ -136,6 +145,7 @@ impl std::error::Error for Error {
             | Self::StreamSizeExceeded { .. }
             | Self::PreambleSizeExceeded { .. }
             | Self::HeadersSizeExceeded { .. }
+            | Self::BoundaryPaddingSizeExceeded { .. }
             | Self::LockFailure
             | Self::NoMultipart
             | Self::NoBoundary
@@ -194,6 +204,10 @@ impl PartialEq for Error {
             | (
                 Self::HeadersSizeExceeded { limit: left },
                 Self::HeadersSizeExceeded { limit: right },
+            )
+            | (
+                Self::BoundaryPaddingSizeExceeded { limit: left },
+                Self::BoundaryPaddingSizeExceeded { limit: right },
             ) => left == right,
             (Self::StreamReadFailed(left), Self::StreamReadFailed(right)) => {
                 left.to_string() == right.to_string()

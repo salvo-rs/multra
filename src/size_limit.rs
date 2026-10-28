@@ -12,6 +12,7 @@ pub struct SizeLimit {
     pub(crate) preamble: u64,
     pub(crate) per_field: u64,
     pub(crate) headers: u64,
+    pub(crate) boundary_padding: u64,
     pub(crate) field_map: HashMap<String, u64>,
 }
 
@@ -19,7 +20,8 @@ impl SizeLimit {
     /// Creates the default size limits.
     ///
     /// The whole stream and each field are unbounded, while the preamble is
-    /// limited to 32 KiB and each field's header block to 64 KiB.
+    /// limited to 32 KiB, each field's header block to 64 KiB, and each
+    /// boundary's transport padding to 8 KiB.
     pub fn new() -> Self {
         Self::default()
     }
@@ -51,6 +53,16 @@ impl SizeLimit {
         self
     }
 
+    /// Sets the maximum number of spaces and tabs after each boundary.
+    ///
+    /// The default is 8 KiB. This applies independently of field and stream
+    /// limits, to opening, intermediate, and closing boundaries. The boundary
+    /// marker and terminating CRLF are not included in this limit.
+    pub const fn boundary_padding(mut self, limit: u64) -> Self {
+        self.boundary_padding = limit;
+        self
+    }
+
     /// Sets size limit for a specific field, it overrides the
     /// [`per_field`](Self::per_field) value for this field.
     ///
@@ -77,6 +89,7 @@ impl Default for SizeLimit {
             preamble: constants::DEFAULT_PREAMBLE_SIZE_LIMIT,
             per_field: constants::DEFAULT_PER_FIELD_SIZE_LIMIT,
             headers: constants::DEFAULT_HEADERS_SIZE_LIMIT,
+            boundary_padding: constants::DEFAULT_BOUNDARY_PADDING_SIZE_LIMIT,
             field_map: HashMap::default(),
         }
     }

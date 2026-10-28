@@ -94,6 +94,7 @@ pub enum StreamingStage {
     ReadingBoundary,
     DeterminingBoundaryType,
     ReadingTransportPadding,
+    ReadingClosingTransportPadding,
     ReadingFieldHeaders,
     ReadingFieldData,
     Eof,
@@ -157,7 +158,11 @@ impl<'r> Multipart<'r> {
 
         Multipart {
             state: Arc::new(Mutex::new(MultipartState {
-                buffer: StreamBuffer::new(stream, constraints.size_limit.whole_stream),
+                buffer: StreamBuffer::new(
+                    stream,
+                    constraints.size_limit.whole_stream,
+                    constraints.size_limit.boundary_padding,
+                ),
                 boundary_bytes,
                 field_boundary_bytes,
                 stage: StreamingStage::FindingFirstBoundary,
@@ -461,14 +466,24 @@ impl<'r> Multipart<'r> {
             };
 
             if next_bytes == constants::BOUNDARY_EXT.as_bytes() {
-                state.stage = StreamingStage::Eof;
-                return Poll::Ready(Ok(None));
+                state.buffer.advance(ext_len);
+                state.stage = StreamingStage::ReadingClosingTransportPadding;
+            } else {
+                state.stage = StreamingStage::ReadingTransportPadding;
             }
-            state.stage = StreamingStage::ReadingTransportPadding;
         }
 
-        if state.stage == StreamingStage::ReadingTransportPadding {
-            if !state.buffer.advance_past_transport_padding() {
+        if matches!(
+            state.stage,
+            StreamingStage::ReadingTransportPadding
+                | StreamingStage::ReadingClosingTransportPadding
+        ) {
+            let closing = state.stage == StreamingStage::ReadingClosingTransportPadding;
+            if !state.buffer.advance_past_transport_padding()? {
+                if closing && state.buffer.eof {
+                    state.stage = StreamingStage::Eof;
+                    return Poll::Ready(Ok(None));
+                }
                 return if state.buffer.eof {
                     Poll::Ready(Err(Error::IncompleteStream))
                 } else {
@@ -486,6 +501,10 @@ impl<'r> Multipart<'r> {
             };
 
             if &crlf_bytes[..] == constants::CRLF.as_bytes() {
+                if closing {
+                    state.stage = StreamingStage::Eof;
+                    return Poll::Ready(Ok(None));
+                }
                 state.stage = StreamingStage::ReadingFieldHeaders;
             } else {
                 return Poll::Ready(Err(Error::IncompleteStream));

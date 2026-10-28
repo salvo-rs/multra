@@ -5,6 +5,7 @@ use encoding_rs::Encoding;
 pub const DEFAULT_WHOLE_STREAM_SIZE_LIMIT: u64 = u64::MAX;
 pub const DEFAULT_PER_FIELD_SIZE_LIMIT: u64 = u64::MAX;
 pub const DEFAULT_HEADERS_SIZE_LIMIT: u64 = 64 * 1024;
+pub const DEFAULT_BOUNDARY_PADDING_SIZE_LIMIT: u64 = 8 * 1024;
 
 // Default limit for preamble bytes (data before the first boundary). Applied
 // independently of the whole-stream limit and configurable through
