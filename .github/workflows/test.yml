@@ -58,7 +58,10 @@ jobs:
     - name: check
       run: cargo check --all --bins --examples --all-features
 
-    - name: tests
+    - name: tests (no default features)
+      run: cargo test --all --no-default-features
+
+    - name: tests (all features)
       run: cargo test --all --all-features
 
   check_fuzz_target:
@@ -96,3 +99,26 @@ jobs:
 
     - name: Docs
       run: cargo doc --all-features --no-deps
+
+  fuzz_smoke:
+    name: Fuzz smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+    - name: Install nightly
+      uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      with:
+        toolchain: nightly
+
+    - name: Install cargo-fuzz
+      run: cargo install cargo-fuzz --locked
+
+    - name: Build fuzz target
+      run: cargo fuzz build fuzz_multipart_bytes
+
+    - name: Run corpus and bounded mutations
+      timeout-minutes: 2
+      run: cargo fuzz run fuzz_multipart_bytes fuzz/corpus/fuzz_multipart_bytes -- -max_total_time=60 -timeout=5 -max_len=16384
