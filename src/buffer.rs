@@ -84,7 +84,9 @@ impl<'r> StreamBuffer<'r> {
             return Ok(());
         }
 
-        loop {
+        // Empty chunks are valid, but an always-ready source must not keep
+        // this task inside a single poll indefinitely.
+        for _ in 0..32 {
             match self.stream.as_mut().poll_next(cx) {
                 Poll::Ready(Some(Ok(data))) => {
                     // Saturating add prevents an attacker from overflowing
@@ -114,6 +116,9 @@ impl<'r> StreamBuffer<'r> {
                 Poll::Pending => return Ok(()),
             }
         }
+
+        cx.waker().wake_by_ref();
+        Ok(())
     }
 
     pub fn read_exact(&mut self, size: usize) -> Option<Bytes> {
