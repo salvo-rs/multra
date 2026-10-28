@@ -103,6 +103,9 @@ impl<'r> Field<'r> {
 
     /// Get the full data of the field as [`Bytes`].
     ///
+    /// A single data chunk is returned without copying and may share its
+    /// allocation with other buffered fields.
+    ///
     /// # Examples
     ///
     /// ```
@@ -131,14 +134,25 @@ impl<'r> Field<'r> {
     /// Returns an error if the input stream cannot be read, the multipart data
     /// is malformed, or a configured size limit is exceeded.
     pub async fn bytes(self) -> crate::Result<Bytes> {
+        let mut first_chunk: Option<Bytes> = None;
         let mut buf = BytesMut::new();
 
         let mut this = self;
         while let Some(bytes) = this.chunk().await? {
+            if bytes.is_empty() {
+                continue;
+            }
+            if let Some(first) = first_chunk.take() {
+                buf.reserve(first.len().saturating_add(bytes.len()));
+                buf.extend_from_slice(&first);
+            } else if buf.is_empty() {
+                first_chunk = Some(bytes);
+                continue;
+            }
             buf.extend_from_slice(&bytes);
         }
 
-        Ok(buf.freeze())
+        Ok(first_chunk.unwrap_or_else(|| buf.freeze()))
     }
 
     /// Stream a chunk of the field data.
