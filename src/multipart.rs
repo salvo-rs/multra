@@ -513,8 +513,7 @@ impl<'r> Multipart<'r> {
 
         if state.stage == StreamingStage::ReadingFieldHeaders {
             let headers_limit = state.constraints.size_limit.headers;
-            let Some(header_bytes) = state.buffer.read_until(constants::CRLF_CRLF.as_bytes())
-            else {
+            let Some(header_bytes) = state.buffer.read_headers() else {
                 if state.buffer.buf.len() as u64 > headers_limit {
                     return Poll::Ready(Err(Error::HeadersSizeExceeded {
                         limit: headers_limit,
