@@ -45,19 +45,44 @@ fn trim_ascii_ws_end(bytes: &[u8]) -> &[u8] {
         .map_or(&bytes[..0], |i| &bytes[..=i])
 }
 
-const fn skip_to_next_parameter(header: &[u8], index: &mut usize) {
-    while *index < header.len() && header[*index] != b';' {
-        *index += 1;
-    }
-    if *index < header.len() {
-        *index += 1;
-    }
-}
+fn content_disposition_parameters(header: &[u8]) -> impl Iterator<Item = (&[u8], &[u8])> {
+    // Skip the disposition type, then consume each complete parameter before
+    // looking for another. Semicolons inside quoted strings are value bytes.
+    let mut remaining = memchr::memchr(b';', header).map_or(&header[..0], |idx| &header[idx + 1..]);
 
-const fn skip_ascii_ws(header: &[u8], index: &mut usize) {
-    while *index < header.len() && header[*index].is_ascii_whitespace() {
-        *index += 1;
-    }
+    std::iter::from_fn(move || {
+        while !remaining.is_empty() {
+            let mut quoted = false;
+            let mut escaped = false;
+            let end = remaining
+                .iter()
+                .position(|&byte| {
+                    if escaped {
+                        escaped = false;
+                    } else if quoted && byte == b'\\' {
+                        escaped = true;
+                    } else if byte == b'"' {
+                        quoted = !quoted;
+                    } else if !quoted && byte == b';' {
+                        return true;
+                    }
+                    false
+                })
+                .unwrap_or(remaining.len());
+            let parameter = trim_ascii_ws_start(&remaining[..end]);
+            remaining = remaining.get(end + 1..).unwrap_or_default();
+
+            let key_end = parameter
+                .iter()
+                .position(|byte| byte.is_ascii_whitespace() || *byte == b'=')
+                .unwrap_or(parameter.len());
+            let key = &parameter[..key_end];
+            if let Some(value) = trim_ascii_ws_then(&parameter[key_end..], b'=') {
+                return Some((key, value));
+            }
+        }
+        None
+    })
 }
 
 fn parse_quoted_value(mut header: &[u8]) -> Option<(&[u8], bool)> {
@@ -174,41 +199,16 @@ impl ContentDispositionAttr {
             Self::Name => &b"name"[..],
             Self::FileName => &b"filename"[..],
         };
-        let mut index = 0;
-
-        while index < header.len() {
-            skip_to_next_parameter(header, &mut index);
-            skip_ascii_ws(header, &mut index);
-            if index >= header.len() {
-                break;
-            }
-
-            let key_start = index;
-            while index < header.len()
-                && !header[index].is_ascii_whitespace()
-                && header[index] != b'='
-                && header[index] != b';'
-            {
-                index += 1;
-            }
-
-            let key = &header[key_start..index];
-            skip_ascii_ws(header, &mut index);
-            if index >= header.len() || header[index] != b'=' {
+        for (key, rest) in content_disposition_parameters(header) {
+            if !key.eq_ignore_ascii_case(prefix) {
                 continue;
             }
-
-            index += 1;
-            let rest = &header[index..];
             let (bytes, is_escaped) = if let Some((value, escaped)) = parse_quoted_value(rest) {
                 (value, escaped)
             } else {
                 (parse_unquoted_value(rest), false)
             };
-
-            if key.eq_ignore_ascii_case(prefix) {
-                return decode_value(bytes, is_escaped, matches!(self, Self::FileName));
-            }
+            return decode_value(bytes, is_escaped, matches!(self, Self::FileName));
         }
 
         None
@@ -219,33 +219,9 @@ impl ContentDispositionAttr {
             Self::Name => return None,
             Self::FileName => &b"filename*"[..],
         };
-        let mut index = 0;
-
-        while index < header.len() {
-            skip_to_next_parameter(header, &mut index);
-            skip_ascii_ws(header, &mut index);
-            if index >= header.len() {
-                break;
-            }
-
-            let key_start = index;
-            while index < header.len()
-                && !header[index].is_ascii_whitespace()
-                && header[index] != b'='
-                && header[index] != b';'
-            {
-                index += 1;
-            }
-
-            let key = &header[key_start..index];
-            skip_ascii_ws(header, &mut index);
-            if index >= header.len() || header[index] != b'=' {
-                continue;
-            }
-
-            index += 1;
+        for (key, rest) in content_disposition_parameters(header) {
             if key.eq_ignore_ascii_case(prefix) {
-                let value = parse_unquoted_value(&header[index..]);
+                let value = parse_unquoted_value(rest);
                 return Some(decode_extended_value(value)?.into());
             }
         }
@@ -428,5 +404,43 @@ mod tests {
         let filename = ContentDispositionAttr::FileName.extract_from(val);
         assert_eq!(name.unwrap(), "upload");
         assert_eq!(filename.unwrap(), "你好.txt");
+    }
+
+    #[test]
+    fn test_content_disposition_parameters_ignore_quoted_semicolons() {
+        let headers: &[&[u8]] = &[
+            br#"form-data; filename="a; name=admin;z"; name="upload""#,
+            br#"form-data; filename="a\"; name=admin;z"; name="upload""#,
+            br#"form-data; filename="a\\"; name="upload""#,
+            br#"form-data; ignored="; name=admin;"; name=upload"#,
+        ];
+        for header in headers {
+            assert_eq!(
+                ContentDispositionAttr::Name.extract_from(header).as_deref(),
+                Some("upload")
+            );
+        }
+
+        let header = br#"form-data; filename="a; name=admin;"#;
+        assert!(ContentDispositionAttr::Name.extract_from(header).is_none());
+    }
+
+    #[test]
+    fn test_content_disposition_filename_parameters_ignore_quoted_semicolons() {
+        for header in [
+            &br#"form-data; ignored="; filename=injected.txt;"; filename="real.txt""#[..],
+            &br#"form-data; name="; filename*=UTF-8''injected.txt;"; filename="real.txt""#[..],
+            &br#"form-data; filename="real.txt"; ignored="; filename*=UTF-8''injected.txt;"#[..],
+            &br#"form-data; ignored="; filename*=UTF-8''injected.txt;"; filename*=UTF-8''real.txt"#
+                [..],
+            &br#"form-data; filename*=unknown''invalid; filename="real.txt""#[..],
+        ] {
+            assert_eq!(
+                ContentDispositionAttr::FileName
+                    .extract_from(header)
+                    .as_deref(),
+                Some("real.txt")
+            );
+        }
     }
 }

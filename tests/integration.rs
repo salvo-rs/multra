@@ -446,3 +446,32 @@ async fn test_first_field_is_emitted_without_buffering_full_stream() {
     assert_eq!(field.name(), Some("my_text_field"));
     assert_eq!(polls.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn test_quoted_filename_cannot_change_allowed_field() {
+    let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; filename=\"a; name=admin;z\"; name=\"upload\"\r\n\r\nabcd\r\n--X-BOUNDARY--\r\n";
+    let constraints = Constraints::new().allowed_fields(vec!["admin"]);
+    let mut multipart = Multipart::with_constraints(str_stream(data), "X-BOUNDARY", constraints);
+
+    assert!(matches!(
+        multipart.next_field().await,
+        Err(multra::Error::UnknownField { field_name: Some(name) }) if name == "upload"
+    ));
+}
+
+#[tokio::test]
+async fn test_quoted_filename_cannot_change_field_size_limit() {
+    let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; filename=\"a; name=admin;z\"; name=\"upload\"\r\n\r\nabcd\r\n--X-BOUNDARY--\r\n";
+    let constraints = Constraints::new()
+        .allowed_fields(vec!["upload"])
+        .size_limit(SizeLimit::new().per_field(100).for_field("upload", 3));
+    let mut multipart = Multipart::with_constraints(str_stream(data), "X-BOUNDARY", constraints);
+
+    let field = multipart.next_field().await.unwrap().unwrap();
+    assert_eq!(field.name(), Some("upload"));
+    assert_eq!(field.file_name(), Some("a; name=admin;z"));
+    assert!(matches!(
+        field.bytes().await,
+        Err(multra::Error::FieldSizeExceeded { limit: 3, field_name: Some(name) }) if name == "upload"
+    ));
+}
