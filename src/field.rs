@@ -349,37 +349,43 @@ impl Stream for Field<'_> {
         };
 
         let state = &mut *lock;
-        if let Err(err) = state.buffer.poll_stream(cx) {
-            return Poll::Ready(Some(Err(err)));
-        }
+        let mut read_stream = false;
 
-        match state.buffer.read_field_data(
-            &state.field_boundary_bytes,
-            state.curr_field_name.as_deref(),
-        ) {
-            Ok(Some((done, bytes))) => {
-                // Saturating add prevents an attacker from overflowing the
-                // counter back to zero to bypass the size check.
-                state.curr_field_size_counter = state
-                    .curr_field_size_counter
-                    .saturating_add(bytes.len() as u64);
+        loop {
+            match state.buffer.read_field_data(
+                &state.field_boundary_bytes,
+                state.curr_field_name.as_deref(),
+            ) {
+                Ok(Some((done, bytes))) => {
+                    // Saturating add prevents an attacker from overflowing the
+                    // counter back to zero to bypass the size check.
+                    state.curr_field_size_counter = state
+                        .curr_field_size_counter
+                        .saturating_add(bytes.len() as u64);
 
-                if state.curr_field_size_counter > state.curr_field_size_limit {
-                    return Poll::Ready(Some(Err(Error::FieldSizeExceeded {
-                        limit: state.curr_field_size_limit,
-                        field_name: state.curr_field_name.clone(),
-                    })));
+                    if state.curr_field_size_counter > state.curr_field_size_limit {
+                        return Poll::Ready(Some(Err(Error::FieldSizeExceeded {
+                            limit: state.curr_field_size_limit,
+                            field_name: state.curr_field_name.clone(),
+                        })));
+                    }
+
+                    if done {
+                        state.stage = StreamingStage::ReadingBoundary;
+                        self.done = true;
+                    }
+
+                    return Poll::Ready(Some(Ok(bytes)));
                 }
-
-                if done {
-                    state.stage = StreamingStage::ReadingBoundary;
-                    self.done = true;
+                Ok(None) if !read_stream => {
+                    read_stream = true;
+                    if let Err(err) = state.buffer.poll_stream(cx) {
+                        return Poll::Ready(Some(Err(err)));
+                    }
                 }
-
-                Poll::Ready(Some(Ok(bytes)))
+                Ok(None) => return Poll::Pending,
+                Err(err) => return Poll::Ready(Some(Err(err))),
             }
-            Ok(None) => Poll::Pending,
-            Err(err) => Poll::Ready(Some(Err(err))),
         }
     }
 }
