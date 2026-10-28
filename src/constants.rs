@@ -45,7 +45,7 @@ fn trim_ascii_ws_end(bytes: &[u8]) -> &[u8] {
         .map_or(&bytes[..0], |i| &bytes[..=i])
 }
 
-fn skip_to_next_parameter(header: &[u8], index: &mut usize) {
+const fn skip_to_next_parameter(header: &[u8], index: &mut usize) {
     while *index < header.len() && header[*index] != b';' {
         *index += 1;
     }
@@ -54,7 +54,7 @@ fn skip_to_next_parameter(header: &[u8], index: &mut usize) {
     }
 }
 
-fn skip_ascii_ws(header: &[u8], index: &mut usize) {
+const fn skip_ascii_ws(header: &[u8], index: &mut usize) {
     while *index < header.len() && header[*index].is_ascii_whitespace() {
         *index += 1;
     }

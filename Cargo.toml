@@ -10,7 +10,7 @@ authors = ["Rousan Ali <hello@rousan.io>", "Chris Young <chris@sonc.ai>"]
 readme = "README.md"
 license = "MIT"
 edition = "2024"
-rust-version = "1.94"
+rust-version = "1.95"
 
 [package.metadata.docs.rs]
 all-features = true
