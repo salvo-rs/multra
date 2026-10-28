@@ -512,6 +512,12 @@ impl<'r> Multipart<'r> {
         }
 
         if state.stage == StreamingStage::ReadingFieldHeaders {
+            let field_count_limit = state.constraints.max_fields.unwrap_or(usize::MAX);
+            if state.next_field_idx >= field_count_limit {
+                return Poll::Ready(Err(Error::FieldCountExceeded {
+                    limit: field_count_limit,
+                }));
+            }
             let headers_limit = state.constraints.size_limit.headers;
             let Some(header_bytes) = state.buffer.read_until(constants::CRLF_CRLF.as_bytes())
             else {
@@ -555,6 +561,8 @@ impl<'r> Multipart<'r> {
             state.stage = StreamingStage::ReadingFieldData;
 
             let field_idx = state.next_field_idx;
+            // The count check before parsing headers also guarantees that the
+            // zero-based field index never wraps, even with no explicit limit.
             state.next_field_idx += 1;
 
             let content_disposition = ContentDisposition::parse(&headers);
@@ -621,5 +629,32 @@ impl<'r> Multipart<'r> {
         self.next_field()
             .await
             .map(|f| f.map(|field| (field.index(), field)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bytes::Bytes;
+    use futures_util::stream;
+
+    use super::Multipart;
+    use crate::{Constraints, Error};
+
+    #[tokio::test]
+    async fn field_indices_cannot_overflow() {
+        for constraints in [
+            Constraints::new(),
+            Constraints::new().max_fields(usize::MAX),
+        ] {
+            let source = stream::iter([Ok::<_, std::convert::Infallible>(Bytes::from_static(
+                b"--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nx\r\n--B--\r\n",
+            ))]);
+            let mut multipart = Multipart::with_constraints(source, "B", constraints);
+            multipart.state.lock().unwrap().next_field_idx = usize::MAX;
+            assert!(matches!(
+                multipart.next_field().await,
+                Err(Error::FieldCountExceeded { limit: usize::MAX })
+            ));
+        }
     }
 }

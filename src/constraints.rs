@@ -52,6 +52,7 @@ use crate::size_limit::SizeLimit;
 pub struct Constraints {
     pub(crate) size_limit: SizeLimit,
     pub(crate) allowed_fields: Option<HashSet<String>>,
+    pub(crate) max_fields: Option<usize>,
 }
 
 impl Constraints {
@@ -62,10 +63,29 @@ impl Constraints {
 
     /// Applies rules on field's content length.
     pub fn size_limit(self, size_limit: SizeLimit) -> Self {
-        Self {
-            size_limit,
-            allowed_fields: self.allowed_fields,
-        }
+        Self { size_limit, ..self }
+    }
+
+    /// Sets the maximum number of fields in a multipart body.
+    ///
+    /// No field count limit is configured by default. Every part whose headers
+    /// are parsed counts once, including empty fields, repeated names, and
+    /// fields dropped without reading their data. This is independent of
+    /// [`Self::allowed_fields`] and [`Self::size_limit`].
+    ///
+    /// An additional part is rejected with [`crate::Error::FieldCountExceeded`]
+    /// before its headers are parsed. A limit of zero accepts an empty
+    /// multipart body only. Even without an explicit limit, the parser rejects
+    /// more than [`usize::MAX`] fields to keep field indices from overflowing.
+    ///
+    /// ```
+    /// use multra::Constraints;
+    ///
+    /// let constraints = Constraints::new().max_fields(100);
+    /// ```
+    pub const fn max_fields(mut self, limit: usize) -> Self {
+        self.max_fields = Some(limit);
+        self
     }
 
     /// Specify which fields should be allowed, for any unknown field, the
@@ -74,8 +94,8 @@ impl Constraints {
         let allowed_fields = allowed_fields.into_iter().map(Into::into).collect();
 
         Self {
-            size_limit: self.size_limit,
             allowed_fields: Some(allowed_fields),
+            ..self
         }
     }
 

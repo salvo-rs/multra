@@ -50,6 +50,9 @@ pub enum Error {
     /// A boundary's transport padding exceeded the maximum limit.
     BoundaryPaddingSizeExceeded { limit: u64 },
 
+    /// The multipart body contains more fields than permitted.
+    FieldCountExceeded { limit: usize },
+
     /// Stream read failed.
     StreamReadFailed(BoxError),
 
@@ -110,6 +113,9 @@ impl Display for Error {
                     "boundary transport padding exceeded limit: {limit} bytes"
                 )
             }
+            Self::FieldCountExceeded { limit } => {
+                write!(f, "multipart field count exceeded limit: {limit}")
+            }
             Self::ReadHeaderFailed(_) => write!(f, "failed to read headers"),
             Self::StreamReadFailed(_) => write!(f, "failed to read stream"),
             Self::DecodeContentType(_) => write!(f, "failed to decode Content-Type"),
@@ -146,6 +152,7 @@ impl std::error::Error for Error {
             | Self::PreambleSizeExceeded { .. }
             | Self::HeadersSizeExceeded { .. }
             | Self::BoundaryPaddingSizeExceeded { .. }
+            | Self::FieldCountExceeded { .. }
             | Self::LockFailure
             | Self::NoMultipart
             | Self::NoBoundary
@@ -208,6 +215,10 @@ impl PartialEq for Error {
             | (
                 Self::BoundaryPaddingSizeExceeded { limit: left },
                 Self::BoundaryPaddingSizeExceeded { limit: right },
+            ) => left == right,
+            (
+                Self::FieldCountExceeded { limit: left },
+                Self::FieldCountExceeded { limit: right },
             ) => left == right,
             (Self::StreamReadFailed(left), Self::StreamReadFailed(right)) => {
                 left.to_string() == right.to_string()
