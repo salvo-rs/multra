@@ -378,7 +378,7 @@ impl<'r> Multipart<'r> {
 
         if state.stage == StreamingStage::FindingFirstBoundary {
             let preamble_limit = state.constraints.size_limit.preamble;
-            if let Some(preamble_len) = state.buffer.find(&state.boundary_bytes) {
+            if let Some(preamble_len) = state.buffer.find_first_boundary(&state.boundary_bytes) {
                 if preamble_len as u64 > preamble_limit {
                     return Poll::Ready(Err(Error::PreambleSizeExceeded {
                         limit: preamble_limit,

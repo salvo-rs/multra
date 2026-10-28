@@ -389,7 +389,7 @@ async fn test_security_oversized_preamble_before_boundary_rejected() {
 #[tokio::test]
 async fn test_configurable_preamble_limit() {
     let mut data = vec![b'A'; 64 * 1024];
-    data.extend_from_slice(b"--X-BOUNDARY--\r\n");
+    data.extend_from_slice(b"\r\n--X-BOUNDARY--\r\n");
     let stream = stream::once(async move { Ok::<Bytes, Infallible>(Bytes::from(data)) });
     let constraints = Constraints::new().size_limit(SizeLimit::new().preamble(128 * 1024));
     let mut m = Multipart::with_constraints(stream, "X-BOUNDARY", constraints);
