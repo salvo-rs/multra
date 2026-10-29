@@ -37,15 +37,15 @@ encoding_rs = "0.8.35"
 log = { version = "0.4.33", optional = true }
 serde = { version = "1.0.228", optional = true }
 serde_json = { version = "1.0.150", optional = true }
-tokio = { version = "1.52.3", features = [], optional = true }
+tokio = { version = "1.53.3", features = [], optional = true }
 tokio-util = { version = "0.7.18", features = ["io"], optional = true }
 
 [dev-dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
-tokio = { version = "1.52.3", features = ["full"] }
+tokio = { version = "1.53.3", features = ["full"] }
 hyper = { version = "1.10.1", features = ["server", "http1"] }
 http-body-util = "0.1.4"
-hyper-util = { version = "0.1.20", features = ["full"] }
+hyper-util = { version = "0.1.20", features = ["tokio"] }
 
 [[example]]
 name = "parse_async_read"
