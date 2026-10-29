@@ -368,9 +368,34 @@ impl<'r> Multipart<'r> {
     /// Returns an error if a previous field is still alive, the input stream
     /// cannot be read, the multipart data is malformed, or a configured
     /// constraint is violated.
-    #[allow(clippy::too_many_lines)] // The stages form one explicit parser state machine.
     pub fn poll_next_field(&mut self, cx: &mut Context<'_>) -> Poll<Result<Option<Field<'r>>>> {
-        // This is consistent as we have an `&mut` and `Field` is not `Clone`.
+        let result = self.poll_next_field_from_buffer();
+        if result.is_ready() {
+            return result;
+        }
+
+        let Ok(mut lock) = self.state.try_lock() else {
+            return Poll::Ready(Err(Error::LockFailure));
+        };
+        let buffered_len = lock.buffer.buf.len();
+        lock.buffer.poll_stream(cx)?;
+        let has_new_input = lock.buffer.eof || lock.buffer.buf.len() != buffered_len;
+        drop(lock);
+
+        // Read at most one nonempty chunk per poll. New data schedules another
+        // poll if it is still insufficient; an upstream Pending registers its
+        // own waker. EOF must be parsed immediately because it does not wake us.
+        if has_new_input {
+            self.poll_next_field_from_buffer()
+        } else {
+            Poll::Pending
+        }
+    }
+
+    #[allow(clippy::too_many_lines)] // The stages form one explicit parser state machine.
+    fn poll_next_field_from_buffer(&self) -> Poll<Result<Option<Field<'r>>>> {
+        // The public polling entry point requires `&mut Multipart`, and
+        // `Field` is not `Clone`.
         // Here, we are guaranteeing that the returned `Field` will be the
         // _only_ field with access to the multipart parsing state. This ensure
         // that lock failure can never occur. This is effectively a dynamic
@@ -387,8 +412,6 @@ impl<'r> Multipart<'r> {
         if state.stage == StreamingStage::Eof {
             return Poll::Ready(Ok(None));
         }
-
-        state.buffer.poll_stream(cx)?;
 
         if state.stage == StreamingStage::FindingFirstBoundary {
             let preamble_limit = state.constraints.size_limit.preamble;
@@ -414,7 +437,6 @@ impl<'r> Multipart<'r> {
                         limit: preamble_limit,
                     }));
                 }
-                state.buffer.poll_stream(cx)?;
                 if state.buffer.eof {
                     return Poll::Ready(Err(Error::IncompleteStream));
                 }
