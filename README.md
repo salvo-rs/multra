@@ -86,6 +86,16 @@ Use `SizeLimit::boundary_padding()` to adjust this limit. This applies to
 opening, intermediate, and closing boundaries; excess padding returns
 `Error::BoundaryPaddingSizeExceeded` rather than being treated as field data.
 
+To reject bodies containing too many parts, set a field count limit as well:
+
+```rust
+let constraints = multra::Constraints::new().max_fields(100);
+```
+
+The count includes empty fields, repeated names, and fields skipped without
+reading. The next part beyond the limit returns `Error::FieldCountExceeded`
+before its headers are parsed. Field count remains unbounded by default.
+
 ## Prevent Denial of Service (DoS) Attacks
 
 This crate provides APIs to prevent potential DoS attacks with fine grained control.
