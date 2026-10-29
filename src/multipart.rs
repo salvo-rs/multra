@@ -19,6 +19,16 @@ use crate::{Result, constants, helpers};
 /// This will parse the source stream into [`Field`] instances via
 /// [`next_field()`](Self::next_field).
 ///
+/// # Errors and cancellation
+///
+/// Stop parsing and discard this instance after a stream, parsing, or
+/// constraint error. Recovery after these errors is not guaranteed. If
+/// [`Error::LockFailure`] is returned because a previous field is still alive,
+/// drop that field before retrying.
+///
+/// Cancelling a pending [`Self::next_field`] or [`Field::chunk`] operation keeps
+/// the parsing progress in this instance, so that operation can be retried.
+///
 /// # Field Exclusivity
 ///
 /// A `Field` represents a raw, self-decoding stream into multipart data. As
@@ -269,13 +279,17 @@ impl<'r> Multipart<'r> {
     /// # Examples
     ///
     /// ```
-    /// use multra::Multipart;
+    /// use multra::{Constraints, Multipart, SizeLimit};
     ///
     /// # async fn run() {
     /// let data =
     ///     "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY--\r\n";
     /// let reader = data.as_bytes();
-    /// let mut multipart = Multipart::with_reader(reader, "X-BOUNDARY");
+    /// let constraints = Constraints::new().size_limit(
+    ///     SizeLimit::new().whole_stream(15 * 1024 * 1024).per_field(10 * 1024 * 1024),
+    /// );
+    /// let mut multipart =
+    ///     Multipart::with_reader_and_constraints(reader, "X-BOUNDARY", constraints);
     ///
     /// while let Some(mut field) = multipart.next_field().await.unwrap() {
     ///     while let Some(chunk) = field.chunk().await.unwrap() {

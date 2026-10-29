@@ -18,6 +18,10 @@ use crate::{Error, helpers};
 /// Its content can be accessed via the [`Stream`] API or the methods defined in
 /// this type.
 ///
+/// Stop reading and discard the multipart parser after a stream, parsing, or
+/// size-limit error. Further reads after such an error have no recovery
+/// guarantee.
+///
 /// # Lifetime
 ///
 /// The lifetime of the stream `'r` corresponds to the lifetime of the
@@ -84,6 +88,11 @@ impl<'r> Field<'r> {
     }
 
     /// The file name found in the [`Content-Disposition`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition) header.
+    ///
+    /// This is untrusted client input. It may contain directory components,
+    /// absolute paths, or control characters, including characters produced by
+    /// percent decoding. Do not use it directly as a filesystem path. Generate
+    /// a storage name or validate it against your application's filename policy.
     #[must_use]
     pub fn file_name(&self) -> Option<&str> {
         self.content_disposition.file_name.as_deref()

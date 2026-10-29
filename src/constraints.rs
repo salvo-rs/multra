@@ -8,8 +8,9 @@ use crate::size_limit::SizeLimit;
 /// It's recommended to add some rules on field (specially text field) size to
 /// avoid potential `DoS` attacks from attackers running the server out of memory.
 /// This type provides some API to apply constraints on very granular level to
-/// make `multipart/form-data` safe. By default, it does not apply any
-/// constraint.
+/// make `multipart/form-data` safe. By default, total stream and field content
+/// sizes are unbounded; preamble and header sizes have finite limits. Configure
+/// explicit total and per-field limits for untrusted input.
 ///
 /// # Examples
 ///
