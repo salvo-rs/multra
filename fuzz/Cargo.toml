@@ -9,7 +9,8 @@ edition = "2018"
 debug = true
 debug-assertions = true
 overflow-checks = true
-lto = true
+# LTO can discard sanitizer-coverage symbols before the instrumented link.
+lto = false
 
 [package.metadata]
 cargo-fuzz = true
@@ -17,7 +18,6 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4.13"
 futures-util = { version = "0.3.32", default-features = false }
-tokio = { version = "1.53.3", features = ["rt", "time"] }
 
 [dependencies.multra]
 path = ".."
