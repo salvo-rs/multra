@@ -85,6 +85,7 @@ pub struct StreamBuffer<'r> {
     boundary_padding_limit: u64,
     boundary_padding_scanned: usize,
     transport_padding_counter: u64,
+    first_boundary_search_start: usize,
 }
 
 impl<'r> StreamBuffer<'r> {
@@ -101,6 +102,7 @@ impl<'r> StreamBuffer<'r> {
             boundary_padding_limit,
             boundary_padding_scanned: 0,
             transport_padding_counter: 0,
+            first_boundary_search_start: 0,
         }
     }
 
@@ -163,8 +165,20 @@ impl<'r> StreamBuffer<'r> {
             .map(|idx| self.buf.split_to(idx + pattern.len()).freeze())
     }
 
-    pub fn find(&self, pattern: &[u8]) -> Option<usize> {
-        memchr::memmem::find(&self.buf, pattern)
+    pub fn find_first_boundary(&mut self, pattern: &[u8]) -> Option<usize> {
+        let mut start = self.first_boundary_search_start;
+        while let Some(relative) = memchr::memmem::find(&self.buf[start..], pattern) {
+            let index = start + relative;
+            if index == 0 || (index >= 2 && &self.buf[index - 2..index] == b"\r\n") {
+                return Some(index);
+            }
+            start = index + 1;
+        }
+
+        // Retain enough overlap for a marker split across source chunks. The
+        // preamble remains buffered, so preceding CRLF bytes are still visible.
+        self.first_boundary_search_start = self.buf.len().saturating_sub(pattern.len() - 1);
+        None
     }
 
     pub fn partial_pattern_suffix_len(&self, pattern: &[u8]) -> usize {
