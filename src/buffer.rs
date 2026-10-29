@@ -23,37 +23,56 @@ fn partial_boundary_suffix_len(buf: &[u8], boundary: &[u8]) -> usize {
         .unwrap_or(0)
 }
 
-fn match_padding_and_crlf(bytes: &[u8], eof: bool, allow_eof: bool) -> BoundaryMatch {
-    let mut idx = 0;
-    while matches!(bytes.get(idx), Some(b' ' | b'\t')) {
-        idx += 1;
+fn match_padding_and_crlf(
+    bytes: &[u8],
+    eof: bool,
+    allow_eof: bool,
+    scanned: &mut usize,
+    limit: u64,
+) -> crate::Result<BoundaryMatch> {
+    if *scanned as u64 > limit {
+        return Err(crate::Error::BoundaryPaddingSizeExceeded { limit });
+    }
+    // A partial delimiter stays in the buffer, but its padding must only be
+    // scanned once even when the source supplies one byte per poll.
+    while matches!(bytes.get(*scanned), Some(b' ' | b'\t')) {
+        *scanned += 1;
+        if *scanned as u64 > limit {
+            return Err(crate::Error::BoundaryPaddingSizeExceeded { limit });
+        }
     }
 
-    let bytes = &bytes[idx..];
+    let bytes = &bytes[*scanned..];
     if bytes.is_empty() {
-        return if eof && allow_eof {
+        return Ok(if eof && allow_eof {
             BoundaryMatch::Valid
         } else if eof {
             BoundaryMatch::Invalid
         } else {
             BoundaryMatch::Partial
-        };
+        });
     }
 
-    match bytes {
+    Ok(match bytes {
         [b'\r', b'\n', ..] => BoundaryMatch::Valid,
         [b'\r'] if !eof => BoundaryMatch::Partial,
         _ => BoundaryMatch::Invalid,
-    }
+    })
 }
 
-fn match_boundary_suffix(buf: &[u8], suffix_start: usize, eof: bool) -> BoundaryMatch {
+fn match_boundary_suffix(
+    buf: &[u8],
+    suffix_start: usize,
+    eof: bool,
+    scanned: &mut usize,
+    limit: u64,
+) -> crate::Result<BoundaryMatch> {
     let suffix = &buf[suffix_start..];
     match suffix {
-        [] | [b'-'] if !eof => BoundaryMatch::Partial,
-        [b'-', b'-', rest @ ..] => match_padding_and_crlf(rest, eof, true),
-        [] | [b'-', ..] => BoundaryMatch::Invalid,
-        _ => match_padding_and_crlf(suffix, eof, false),
+        [] | [b'-'] if !eof => Ok(BoundaryMatch::Partial),
+        [b'-', b'-', rest @ ..] => match_padding_and_crlf(rest, eof, true, scanned, limit),
+        [] | [b'-', ..] => Ok(BoundaryMatch::Invalid),
+        _ => match_padding_and_crlf(suffix, eof, false, scanned, limit),
     }
 }
 
@@ -63,10 +82,13 @@ pub struct StreamBuffer<'r> {
     pub(crate) stream: Pin<Box<dyn Stream<Item = Result<Bytes, crate::Error>> + Send + 'r>>,
     pub(crate) whole_stream_size_limit: u64,
     pub(crate) stream_size_counter: u64,
+    boundary_padding_limit: u64,
+    boundary_padding_scanned: usize,
+    transport_padding_counter: u64,
 }
 
 impl<'r> StreamBuffer<'r> {
-    pub fn new<S>(stream: S, whole_stream_size_limit: u64) -> Self
+    pub fn new<S>(stream: S, whole_stream_size_limit: u64, boundary_padding_limit: u64) -> Self
     where
         S: Stream<Item = Result<Bytes, crate::Error>> + Send + 'r,
     {
@@ -76,6 +98,9 @@ impl<'r> StreamBuffer<'r> {
             stream: Box::pin(stream),
             whole_stream_size_limit,
             stream_size_counter: 0,
+            boundary_padding_limit,
+            boundary_padding_scanned: 0,
+            transport_padding_counter: 0,
         }
     }
 
@@ -150,14 +175,26 @@ impl<'r> StreamBuffer<'r> {
         self.buf.advance(size);
     }
 
-    pub fn advance_past_transport_padding(&mut self) -> bool {
-        if let Some(pos) = self.buf.iter().position(|b| *b != b' ' && *b != b'\t') {
-            self.buf.advance(pos);
-            true
-        } else {
-            self.buf.clear();
-            false
+    pub fn advance_past_transport_padding(&mut self) -> crate::Result<bool> {
+        let mut padding_len = 0;
+        for byte in &self.buf {
+            if *byte != b' ' && *byte != b'\t' {
+                break;
+            }
+            padding_len += 1;
+            self.transport_padding_counter = self.transport_padding_counter.saturating_add(1);
+            if self.transport_padding_counter > self.boundary_padding_limit {
+                return Err(crate::Error::BoundaryPaddingSizeExceeded {
+                    limit: self.boundary_padding_limit,
+                });
+            }
         }
+        self.buf.advance(padding_len);
+        let done = !self.buf.is_empty();
+        if done {
+            self.transport_padding_counter = 0;
+        }
+        Ok(done)
     }
 
     pub fn read_field_data(
@@ -178,8 +215,15 @@ impl<'r> StreamBuffer<'r> {
         let b_len = boundary.len();
 
         if let Some(idx) = memchr::memmem::find(&self.buf, boundary) {
-            match match_boundary_suffix(&self.buf, idx + b_len, self.eof) {
+            match match_boundary_suffix(
+                &self.buf,
+                idx + b_len,
+                self.eof,
+                &mut self.boundary_padding_scanned,
+                self.boundary_padding_limit,
+            )? {
                 BoundaryMatch::Valid => {
+                    self.boundary_padding_scanned = 0;
                     trace!("new field found at {}", idx);
                     let bytes = self.buf.split_to(idx).freeze();
 
