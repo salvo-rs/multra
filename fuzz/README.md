@@ -26,6 +26,10 @@ deadline. `-timeout=5` detects a single input stuck inside a parser poll; the
 target's poll budget detects repeated polls that make no progress. Neither relies
 on an async timeout interrupting a synchronous loop.
 
+The fuzz release profile disables LTO because it can break sanitizer-coverage
+linking with undefined `__sancov_gen_` symbols. AddressSanitizer, coverage
+instrumentation, debug assertions, and overflow checks remain enabled in CI.
+
 The target covers complete bodies, bytewise and other chunk widths, and rotates
 between reading `Field::chunk()`, collecting `Field::bytes()`, and dropping unread
 fields. Total body, field, preamble, and header sizes are bounded. It uses manual

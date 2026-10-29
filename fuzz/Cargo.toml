@@ -9,7 +9,8 @@ edition = "2018"
 debug = true
 debug-assertions = true
 overflow-checks = true
-lto = true
+# LTO can discard sanitizer-coverage symbols before the instrumented link.
+lto = false
 
 [package.metadata]
 cargo-fuzz = true
