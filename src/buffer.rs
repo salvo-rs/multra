@@ -86,6 +86,9 @@ pub struct StreamBuffer<'r> {
     boundary_padding_scanned: usize,
     transport_padding_counter: u64,
     first_boundary_search_start: usize,
+    header_search_start: usize,
+    #[cfg(test)]
+    headers_scanned_bytes: usize,
 }
 
 impl<'r> StreamBuffer<'r> {
@@ -103,6 +106,9 @@ impl<'r> StreamBuffer<'r> {
             boundary_padding_scanned: 0,
             transport_padding_counter: 0,
             first_boundary_search_start: 0,
+            header_search_start: 0,
+            #[cfg(test)]
+            headers_scanned_bytes: 0,
         }
     }
 
@@ -150,6 +156,7 @@ impl<'r> StreamBuffer<'r> {
 
     pub fn read_exact(&mut self, size: usize) -> Option<Bytes> {
         if size <= self.buf.len() {
+            self.header_search_start = 0;
             Some(self.buf.split_to(size).freeze())
         } else {
             None
@@ -160,9 +167,24 @@ impl<'r> StreamBuffer<'r> {
         self.buf.get(..size)
     }
 
-    pub fn read_until(&mut self, pattern: &[u8]) -> Option<Bytes> {
-        memchr::memmem::find(&self.buf, pattern)
-            .map(|idx| self.buf.split_to(idx + pattern.len()).freeze())
+    pub fn read_headers(&mut self) -> Option<Bytes> {
+        let pattern = constants::CRLF_CRLF.as_bytes();
+        let haystack = &self.buf[self.header_search_start..];
+        #[cfg(test)]
+        {
+            self.headers_scanned_bytes += haystack.len();
+        }
+
+        if let Some(idx) = memchr::memmem::find(haystack, pattern) {
+            let end = self.header_search_start + idx + pattern.len();
+            self.header_search_start = 0;
+            Some(self.buf.split_to(end).freeze())
+        } else {
+            // A delimiter can straddle input chunks. Already searched bytes
+            // need not be scanned again, except for this three-byte overlap.
+            self.header_search_start = self.buf.len().saturating_sub(pattern.len() - 1);
+            None
+        }
     }
 
     pub fn find_first_boundary(&mut self, pattern: &[u8]) -> Option<usize> {
@@ -186,6 +208,7 @@ impl<'r> StreamBuffer<'r> {
     }
 
     pub fn advance(&mut self, size: usize) {
+        self.header_search_start = 0;
         self.buf.advance(size);
     }
 
@@ -203,7 +226,7 @@ impl<'r> StreamBuffer<'r> {
                 });
             }
         }
-        self.buf.advance(padding_len);
+        self.advance(padding_len);
         let done = !self.buf.is_empty();
         if done {
             self.transport_padding_counter = 0;
@@ -280,5 +303,87 @@ impl<'r> StreamBuffer<'r> {
 impl fmt::Debug for StreamBuffer<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StreamBuffer").finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StreamBuffer;
+
+    fn buffer() -> StreamBuffer<'static> {
+        StreamBuffer::new(
+            futures_util::stream::empty(),
+            u64::MAX,
+            crate::constants::DEFAULT_BOUNDARY_PADDING_SIZE_LIMIT,
+        )
+    }
+
+    #[test]
+    fn headers_are_found_at_every_input_split() {
+        let headers = b"X-Test: value\r\n\r\n";
+        for split in 0..=headers.len() {
+            let mut buffer = buffer();
+            buffer.buf.extend_from_slice(&headers[..split]);
+            let first = buffer.read_headers();
+            if split == headers.len() {
+                assert_eq!(first.unwrap().as_ref(), headers);
+            } else {
+                assert!(first.is_none());
+                buffer.buf.extend_from_slice(&headers[split..]);
+                buffer.buf.extend_from_slice(b"body");
+                assert_eq!(buffer.read_headers().unwrap().as_ref(), headers);
+                assert_eq!(buffer.buf.as_ref(), b"body");
+            }
+        }
+    }
+
+    #[test]
+    fn byte_fragmented_header_scanning_is_linear() {
+        let headers = format!("X-Long: {}\r\n\r\n", "a".repeat(16 * 1024));
+        let mut buffer = buffer();
+        for (index, byte) in headers.bytes().enumerate() {
+            buffer.buf.extend_from_slice(&[byte]);
+            let result = buffer.read_headers();
+            if index + 1 == headers.len() {
+                assert_eq!(result.unwrap().as_ref(), headers.as_bytes());
+            } else {
+                assert!(result.is_none());
+            }
+        }
+        assert!(buffer.headers_scanned_bytes <= 4 * headers.len());
+    }
+
+    #[test]
+    fn header_search_resets_after_each_header_block() {
+        let mut buffer = buffer();
+        for headers in [
+            "X-Long: several bytes before the delimiter\r\n\r\n",
+            "X: y\r\n\r\n",
+        ] {
+            for byte in headers.bytes() {
+                buffer.buf.extend_from_slice(&[byte]);
+                if buffer.buf.len() == headers.len() {
+                    assert_eq!(buffer.read_headers().unwrap().as_ref(), headers.as_bytes());
+                } else {
+                    assert!(buffer.read_headers().is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn header_search_resets_when_buffered_bytes_are_consumed() {
+        for consumption in 0..3 {
+            let mut buffer = buffer();
+            buffer.buf.extend_from_slice(b"          ");
+            assert!(buffer.read_headers().is_none());
+            match consumption {
+                0 => assert_eq!(buffer.read_exact(10).unwrap().len(), 10),
+                1 => buffer.advance(10),
+                _ => assert!(!buffer.advance_past_transport_padding().unwrap()),
+            }
+            buffer.buf.extend_from_slice(b"X: y\r\n\r\n");
+            assert_eq!(buffer.read_headers().unwrap().as_ref(), b"X: y\r\n\r\n");
+        }
     }
 }
