@@ -82,12 +82,16 @@ impl<'r> Field<'r> {
     }
 
     /// The field name found in the [`Content-Disposition`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition) header.
+    ///
+    /// If the header is repeated, the last value is used.
     #[must_use]
     pub fn name(&self) -> Option<&str> {
         self.content_disposition.field_name.as_deref()
     }
 
     /// The file name found in the [`Content-Disposition`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition) header.
+    ///
+    /// If the header is repeated, the last value is used.
     ///
     /// This is untrusted client input. It may contain directory components,
     /// absolute paths, or control characters, including characters produced by
@@ -99,12 +103,18 @@ impl<'r> Field<'r> {
     }
 
     /// Get the content type of the field.
+    ///
+    /// If the header is repeated, the last value is used, even if it is invalid.
     #[must_use]
     pub const fn content_type(&self) -> Option<&mime::Mime> {
         self.content_type.as_ref()
     }
 
     /// Get a map of headers as [`HeaderMap`].
+    ///
+    /// Repeated values are preserved in their original order and can be read
+    /// with [`HeaderMap::get_all`]. The field metadata accessors use the last
+    /// `Content-Disposition` and `Content-Type` values for compatibility.
     #[must_use]
     pub const fn headers(&self) -> &HeaderMap {
         &self.headers

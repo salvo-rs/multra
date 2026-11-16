@@ -11,7 +11,9 @@ pub struct ContentDisposition {
 impl ContentDisposition {
     pub fn parse(headers: &HeaderMap) -> Self {
         let content_disposition = headers
-            .get(header::CONTENT_DISPOSITION)
+            .get_all(header::CONTENT_DISPOSITION)
+            .iter()
+            .next_back()
             .map(http::HeaderValue::as_bytes);
 
         let field_name = content_disposition

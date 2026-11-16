@@ -21,7 +21,7 @@ pub fn convert_raw_headers_to_header_map(raw_headers: &[Header<'_>]) -> crate::R
             }
         })?;
 
-        headers.insert(name, value);
+        headers.append(name, value);
     }
 
     Ok(headers)
@@ -29,7 +29,9 @@ pub fn convert_raw_headers_to_header_map(raw_headers: &[Header<'_>]) -> crate::R
 
 pub fn parse_content_type(headers: &HeaderMap) -> Option<mime::Mime> {
     headers
-        .get(header::CONTENT_TYPE)
+        .get_all(header::CONTENT_TYPE)
+        .iter()
+        .next_back()
         .and_then(|val| val.to_str().ok())
         .and_then(|val| val.parse::<mime::Mime>().ok())
 }
