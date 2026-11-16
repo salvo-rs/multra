@@ -88,26 +88,17 @@ fn content_disposition_parameters(header: &[u8]) -> impl Iterator<Item = (&[u8],
 
 fn parse_quoted_value(mut header: &[u8]) -> Option<(&[u8], bool)> {
     header = trim_ascii_ws_then(header, b'"')?;
-    let start = 0;
-    let (mut index, mut escaped) = (start, false);
+    let (mut index, mut escaped) = (0, false);
 
     while index < header.len() {
-        if header[index] == b'"' {
-            let mut backslashes = 0;
-            let mut cursor = index;
-            while cursor > start && header[cursor - 1] == b'\\' {
-                backslashes += 1;
-                cursor -= 1;
+        match header[index] {
+            b'\\' => {
+                escaped = true;
+                index += 2;
             }
-
-            if backslashes % 2 == 0 {
-                return Some((&header[..index], escaped));
-            }
-
-            escaped = true;
+            b'"' => return Some((&header[..index], escaped)),
+            _ => index += 1,
         }
-
-        index += 1;
     }
 
     None
@@ -146,24 +137,28 @@ fn decode_value(
     is_escaped: bool,
     decode_percent_encoding: bool,
 ) -> Option<Cow<'_, str>> {
+    let value = std::str::from_utf8(bytes).ok()?;
+    let value = if is_escaped {
+        let mut unquoted = String::with_capacity(value.len());
+        let mut chars = value.chars();
+        while let Some(ch) = chars.next() {
+            unquoted.push(if ch == '\\' { chars.next()? } else { ch });
+        }
+        Cow::Owned(unquoted)
+    } else {
+        Cow::Borrowed(value)
+    };
+
+    // Quoted-pairs belong to the header syntax. Bytes introduced by percent
+    // decoding are filename data and must not be unescaped a second time.
     if decode_percent_encoding
-        && bytes.contains(&b'%')
-        && let Some(decoded) = decode_percent_bytes(bytes)
+        && value.contains('%')
+        && let Some(decoded) = decode_percent_bytes(value.as_bytes())
     {
-        let value = String::from_utf8(decoded).ok()?;
-        return if is_escaped {
-            Some(value.replace(r#"\""#, "\"").into())
-        } else {
-            Some(value.into())
-        };
+        return String::from_utf8(decoded).ok().map(Cow::Owned);
     }
 
-    let value = std::str::from_utf8(bytes).ok()?;
-    if is_escaped {
-        Some(value.replace(r#"\""#, "\"").into())
-    } else {
-        Some(value.into())
-    }
+    Some(value)
 }
 
 fn decode_extended_value(bytes: &[u8]) -> Option<String> {

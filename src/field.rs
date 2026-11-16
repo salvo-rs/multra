@@ -82,12 +82,17 @@ impl<'r> Field<'r> {
     }
 
     /// The field name found in the [`Content-Disposition`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition) header.
+    ///
+    /// Quoted values decode MIME quoted-pairs before matching field constraints.
     #[must_use]
     pub fn name(&self) -> Option<&str> {
         self.content_disposition.field_name.as_deref()
     }
 
     /// The file name found in the [`Content-Disposition`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition) header.
+    ///
+    /// In quoted values, a backslash escapes the following character. Encode
+    /// literal backslashes as `\\` in the quoted header parameter.
     ///
     /// This is untrusted client input. It may contain directory components,
     /// absolute paths, or control characters, including characters produced by
