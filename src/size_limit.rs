@@ -27,6 +27,11 @@ impl SizeLimit {
     }
 
     /// Sets size limit for the whole stream.
+    ///
+    /// A finite limit includes the MIME epilogue after the closing boundary.
+    /// Completing iteration therefore waits for the source to reach EOF, and
+    /// source errors in the epilogue are propagated. With the default
+    /// unbounded limit (`u64::MAX`), parsing stops at the closing boundary.
     pub const fn whole_stream(mut self, limit: u64) -> Self {
         self.whole_stream = limit;
         self

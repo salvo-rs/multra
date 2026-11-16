@@ -25,6 +25,8 @@ async fn test_filename_percent_decoding_preserves_invalid_values() {
         ("report%80.txt", "report%80.txt"),
         ("report%C0%AF.txt", "report%C0%AF.txt"),
         ("report%20%FF.txt", "report%20%FF.txt"),
+        (r"C:\\fakepath\\report%FF.txt", r"C:\fakepath\report%FF.txt"),
+        (r#"a\"%FF.txt"#, "a\"%FF.txt"),
         ("file%+A.txt", "file%+A.txt"),
         ("file%+0.txt", "file%+0.txt"),
         ("file%GG.txt", "file%GG.txt"),

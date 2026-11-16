@@ -107,6 +107,7 @@ pub enum StreamingStage {
     ReadingClosingTransportPadding,
     ReadingFieldHeaders,
     ReadingFieldData,
+    ReadingEpilogue,
     Eof,
 }
 
@@ -378,18 +379,22 @@ impl<'r> Multipart<'r> {
             return Poll::Ready(Err(Error::LockFailure));
         };
         let buffered_len = lock.buffer.buf.len();
-        lock.buffer.poll_stream(cx)?;
+        let needs_wake = lock.buffer.poll_stream(cx)?;
         let has_new_input = lock.buffer.eof || lock.buffer.buf.len() != buffered_len;
         drop(lock);
 
         // Read at most one nonempty chunk per poll. New data schedules another
         // poll if it is still insufficient; an upstream Pending registers its
         // own waker. EOF must be parsed immediately because it does not wake us.
-        if has_new_input {
+        let result = if has_new_input {
             self.poll_next_field_from_buffer()
         } else {
             Poll::Pending
+        };
+        if result.is_pending() && needs_wake {
+            cx.waker().wake_by_ref();
         }
+        result
     }
 
     #[allow(clippy::too_many_lines)] // The stages form one explicit parser state machine.
@@ -538,10 +543,17 @@ impl<'r> Multipart<'r> {
 
             if &crlf_bytes[..] == constants::CRLF.as_bytes() {
                 if closing {
-                    state.stage = StreamingStage::Eof;
-                    return Poll::Ready(Ok(None));
+                    state.stage = if state.constraints.size_limit.whole_stream == u64::MAX {
+                        StreamingStage::Eof
+                    } else {
+                        StreamingStage::ReadingEpilogue
+                    };
+                    if state.stage == StreamingStage::Eof {
+                        return Poll::Ready(Ok(None));
+                    }
+                } else {
+                    state.stage = StreamingStage::ReadingFieldHeaders;
                 }
-                state.stage = StreamingStage::ReadingFieldHeaders;
             } else {
                 return Poll::Ready(Err(Error::IncompleteStream));
             }
@@ -580,7 +592,13 @@ impl<'r> Multipart<'r> {
             let headers = match httparse::parse_headers(&header_bytes, &mut headers)
                 .map_err(Error::ReadHeaderFailed)?
             {
-                httparse::Status::Complete((_, raw_headers)) => {
+                httparse::Status::Complete((consumed, raw_headers)) => {
+                    // The buffer and header parser must agree on where the
+                    // header block ends. Otherwise a bare-LF empty line can
+                    // make bytes from the field body disappear as headers.
+                    if consumed != header_bytes.len() {
+                        return Poll::Ready(Err(Error::ReadHeaderFailed(httparse::Error::NewLine)));
+                    }
                     match helpers::convert_raw_headers_to_header_map(raw_headers) {
                         Ok(headers) => headers,
                         Err(err) => {
@@ -622,6 +640,17 @@ impl<'r> Multipart<'r> {
             drop(lock); // The lock will be dropped anyway, but let's be explicit.
             let field = Field::new(self.state.clone(), headers, field_idx, content_disposition);
             return Poll::Ready(Ok(Some(field)));
+        }
+
+        if state.stage == StreamingStage::ReadingEpilogue {
+            // These bytes were counted when pulled from the source. Discard
+            // them before requesting another chunk so epilogue memory stays
+            // bounded by one upstream chunk rather than its total length.
+            state.buffer.buf.clear();
+            if state.buffer.eof {
+                state.stage = StreamingStage::Eof;
+                return Poll::Ready(Ok(None));
+            }
         }
 
         Poll::Pending

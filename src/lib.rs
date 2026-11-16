@@ -213,7 +213,7 @@ pub fn parse_boundary<T: AsRef<str>>(content_type: T) -> Result<String> {
         .parse::<mime::Mime>()
         .map_err(Error::DecodeContentType)?;
 
-    if !(m.type_() == mime::MULTIPART && m.subtype() == mime::FORM_DATA) {
+    if !(m.type_() == mime::MULTIPART && m.subtype() == mime::FORM_DATA && m.suffix().is_none()) {
         return Err(Error::NoMultipart);
     }
 
@@ -226,6 +226,21 @@ pub fn parse_boundary<T: AsRef<str>>(content_type: T) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_boundary_requires_the_complete_form_data_subtype() {
+        for content_type in [
+            "multipart/form-data+json; boundary=B",
+            "multipart/form-data+xml; boundary=B",
+            "MULTIPART/FORM-DATA+CUSTOM; boundary=B",
+        ] {
+            assert_eq!(parse_boundary(content_type), Err(Error::NoMultipart));
+        }
+        assert_eq!(
+            parse_boundary("MULTIPART/FORM-DATA; boundary=MixedCase"),
+            Ok("MixedCase".to_owned())
+        );
+    }
 
     #[test]
     fn test_parse_boundary() {
