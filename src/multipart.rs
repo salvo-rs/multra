@@ -580,7 +580,13 @@ impl<'r> Multipart<'r> {
             let headers = match httparse::parse_headers(&header_bytes, &mut headers)
                 .map_err(Error::ReadHeaderFailed)?
             {
-                httparse::Status::Complete((_, raw_headers)) => {
+                httparse::Status::Complete((consumed, raw_headers)) => {
+                    // The buffer and header parser must agree on where the
+                    // header block ends. Otherwise a bare-LF empty line can
+                    // make bytes from the field body disappear as headers.
+                    if consumed != header_bytes.len() {
+                        return Poll::Ready(Err(Error::ReadHeaderFailed(httparse::Error::NewLine)));
+                    }
                     match helpers::convert_raw_headers_to_header_map(raw_headers) {
                         Ok(headers) => headers,
                         Err(err) => {
