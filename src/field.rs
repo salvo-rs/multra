@@ -110,8 +110,9 @@ impl<'r> Field<'r> {
     ///
     /// Returns `None` if the header is invalid or its parameters cannot be
     /// represented faithfully by [`mime::Mime`], such as quoted values with
-    /// literal quotes or backslashes. The original header remains available
-    /// through [`Self::headers`], and text decoding still honors its charset.
+    /// literal quotes, backslashes, or non-UTF-8 bytes. The original header
+    /// remains available through [`Self::headers`], and text decoding still
+    /// honors its charset.
     #[must_use]
     pub const fn content_type(&self) -> Option<&mime::Mime> {
         self.content_type.as_ref()

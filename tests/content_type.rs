@@ -46,10 +46,13 @@ fn malformed_content_type_parameters_are_rejected() {
 }
 
 fn data(content_type: &str) -> Vec<u8> {
-    let mut body = format!(
-        "--B\r\nContent-Disposition: form-data; name=f\r\nContent-Type: {content_type}\r\n\r\n"
-    )
-    .into_bytes();
+    data_bytes(content_type.as_bytes())
+}
+
+fn data_bytes(content_type: &[u8]) -> Vec<u8> {
+    let mut body = b"--B\r\nContent-Disposition: form-data; name=f\r\nContent-Type: ".to_vec();
+    body.extend_from_slice(content_type);
+    body.extend_from_slice(b"\r\n\r\n");
     body.extend_from_slice(b"\xe9\r\n--B--\r\n");
     body
 }
@@ -110,5 +113,18 @@ async fn utf8_quoted_parameters_do_not_hide_the_part_charset() {
         field.headers()["content-type"].as_bytes(),
         content_type.as_bytes()
     );
+    assert_eq!(field.text().await.unwrap(), "\u{e9}");
+}
+
+#[tokio::test]
+async fn non_utf8_quoted_parameters_do_not_hide_the_part_charset() {
+    let content_type = b"text/plain; note=\"\xe9\"; charset=windows-1252";
+    let mut parser = Multipart::new(
+        stream::iter([Ok::<_, Infallible>(Bytes::from(data_bytes(content_type)))]),
+        "B",
+    );
+    let field = parser.next_field().await.unwrap().unwrap();
+    assert!(field.content_type().is_none());
+    assert_eq!(field.headers()["content-type"].as_bytes(), content_type);
     assert_eq!(field.text().await.unwrap(), "\u{e9}");
 }

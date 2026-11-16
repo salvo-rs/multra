@@ -6,13 +6,17 @@ use crate::{Error, Result};
 #[derive(Debug)]
 pub struct ContentType<'a> {
     pub(crate) essence: mime::Mime,
-    parameters: Vec<(&'a str, Cow<'a, str>)>,
+    parameters: Vec<(&'a str, Cow<'a, [u8]>)>,
 }
 
 impl<'a> ContentType<'a> {
     pub(crate) fn parse(value: &'a str) -> Result<Self> {
+        Self::parse_bytes(value.as_bytes())
+    }
+
+    pub(crate) fn parse_bytes(value: &'a [u8]) -> Result<Self> {
         let invalid = || Error::InvalidContentType {
-            content_type: value.to_owned(),
+            content_type: String::from_utf8_lossy(value).into_owned(),
         };
         let mut parser = Parser { value, position: 0 };
         parser.skip_ows();
@@ -22,7 +26,8 @@ impl<'a> ContentType<'a> {
             return Err(invalid());
         }
         parser.token().ok_or_else(invalid)?;
-        let essence = value[start..parser.position]
+        let essence = std::str::from_utf8(&value[start..parser.position])
+            .map_err(|_| invalid())?
             .parse()
             .map_err(Error::DecodeContentType)?;
         let mut parameters = Vec::new();
@@ -37,7 +42,7 @@ impl<'a> ContentType<'a> {
             }
             parser.skip_ows();
             // HTTP allows empty parameters between semicolons and at the end.
-            if matches!(value.as_bytes().get(parser.position), None | Some(b';')) {
+            if matches!(value.get(parser.position), None | Some(b';')) {
                 continue;
             }
             let name = parser.token().ok_or_else(invalid)?;
@@ -47,7 +52,7 @@ impl<'a> ContentType<'a> {
             let parameter = if parser.consume(b'"') {
                 parser.quoted_value().ok_or_else(invalid)?
             } else {
-                Cow::Borrowed(parser.token().ok_or_else(invalid)?)
+                Cow::Borrowed(parser.token().ok_or_else(invalid)?.as_bytes())
             };
             parameters.push((name, parameter));
         }
@@ -62,13 +67,17 @@ impl<'a> ContentType<'a> {
         self.parameters
             .iter()
             .find(|(key, _)| key.eq_ignore_ascii_case(name))
-            .map(|(_, value)| value.as_ref())
+            .and_then(|(_, value)| std::str::from_utf8(value).ok())
     }
 
     /// Return a Mime only if it can preserve every semantic parameter.
     pub(crate) fn to_mime(&self) -> Option<mime::Mime> {
+        if self.parameters.is_empty() {
+            return Some(self.essence.clone());
+        }
         let mut normalized = self.essence.to_string();
         for (name, value) in &self.parameters {
+            let value = std::str::from_utf8(value).ok()?;
             normalized.push_str("; ");
             normalized.push_str(name);
             normalized.push('=');
@@ -93,9 +102,9 @@ impl<'a> ContentType<'a> {
                 .all(|((name, value), (key, expected))| {
                     name.as_str().eq_ignore_ascii_case(key)
                         && if key.eq_ignore_ascii_case("charset") {
-                            value.as_str().eq_ignore_ascii_case(expected)
+                            value.as_str().as_bytes().eq_ignore_ascii_case(expected)
                         } else {
-                            value.as_str() == expected
+                            value.as_str().as_bytes() == expected.as_ref()
                         }
                 })
         {
@@ -106,13 +115,13 @@ impl<'a> ContentType<'a> {
 }
 
 struct Parser<'a> {
-    value: &'a str,
+    value: &'a [u8],
     position: usize,
 }
 
 impl<'a> Parser<'a> {
     fn consume(&mut self, byte: u8) -> bool {
-        if self.value.as_bytes().get(self.position) == Some(&byte) {
+        if self.value.get(self.position) == Some(&byte) {
             self.position += 1;
             true
         } else {
@@ -121,7 +130,7 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_ows(&mut self) {
-        while matches!(self.value.as_bytes().get(self.position), Some(b' ' | b'\t')) {
+        while matches!(self.value.get(self.position), Some(b' ' | b'\t')) {
             self.position += 1;
         }
     }
@@ -130,26 +139,29 @@ impl<'a> Parser<'a> {
         let start = self.position;
         while self
             .value
-            .as_bytes()
             .get(self.position)
             .is_some_and(|byte| is_token(*byte))
         {
             self.position += 1;
         }
-        (start != self.position).then(|| &self.value[start..self.position])
+        if start == self.position {
+            None
+        } else {
+            std::str::from_utf8(&self.value[start..self.position]).ok()
+        }
     }
 
-    fn quoted_value(&mut self) -> Option<Cow<'a, str>> {
+    fn quoted_value(&mut self) -> Option<Cow<'a, [u8]>> {
         let start = self.position;
         let mut segment = start;
         let mut decoded: Option<Vec<u8>> = None;
-        let bytes = self.value.as_bytes();
+        let bytes = self.value;
         while let Some(&byte) = bytes.get(self.position) {
             match byte {
                 b'"' => {
                     let value = if let Some(mut decoded) = decoded {
                         decoded.extend_from_slice(&bytes[segment..self.position]);
-                        Cow::Owned(String::from_utf8(decoded).ok()?)
+                        Cow::Owned(decoded)
                     } else {
                         Cow::Borrowed(&self.value[start..self.position])
                     };
@@ -229,5 +241,23 @@ mod tests {
         let mime = parsed.to_mime().unwrap();
         assert_eq!(mime.params().count(), 2);
         assert_eq!(mime.get_param(mime::CHARSET).unwrap(), "utf-8");
+    }
+
+    #[test]
+    fn quoted_obstext_keeps_raw_octets_including_quoted_pairs() {
+        for byte in 0x80..=0xff {
+            for escaped in [false, true] {
+                let mut header = b"text/plain; note=\"".to_vec();
+                if escaped {
+                    header.push(b'\\');
+                }
+                header.push(byte);
+                header.extend_from_slice(b"\"; charset=windows-1252");
+                let parsed = ContentType::parse_bytes(&header).unwrap();
+                assert_eq!(parsed.parameters[0].1.as_ref(), [byte]);
+                assert_eq!(parsed.get_param("charset"), Some("windows-1252"));
+                assert!(parsed.to_mime().is_none());
+            }
+        }
     }
 }
