@@ -78,7 +78,8 @@ fn match_boundary_suffix(
 
 pub struct StreamBuffer<'r> {
     pub(crate) eof: bool,
-    pub(crate) buf: BytesMut,
+    pub(crate) buf: Bytes,
+    pending: Bytes,
     pub(crate) stream: Pin<Box<dyn Stream<Item = Result<Bytes, crate::Error>> + Send + 'r>>,
     pub(crate) whole_stream_size_limit: u64,
     pub(crate) stream_size_counter: u64,
@@ -98,7 +99,8 @@ impl<'r> StreamBuffer<'r> {
     {
         StreamBuffer {
             eof: false,
-            buf: BytesMut::new(),
+            buf: Bytes::new(),
+            pending: Bytes::new(),
             stream: Box::pin(stream),
             whole_stream_size_limit,
             stream_size_counter: 0,
@@ -116,6 +118,12 @@ impl<'r> StreamBuffer<'r> {
     pub fn poll_stream(&mut self, cx: &mut Context<'_>) -> Result<bool, crate::Error> {
         if self.eof {
             return Ok(false);
+        }
+
+        if !self.pending.is_empty() {
+            let data = std::mem::take(&mut self.pending);
+            self.push_chunk(data);
+            return Ok(true);
         }
 
         // Empty chunks are valid, but an always-ready source must not keep
@@ -138,7 +146,7 @@ impl<'r> StreamBuffer<'r> {
                         continue;
                     }
 
-                    self.buf.extend_from_slice(&data);
+                    self.push_chunk(data);
                     return Ok(true);
                 }
                 Poll::Ready(Some(Err(err))) => return Err(err),
@@ -153,10 +161,33 @@ impl<'r> StreamBuffer<'r> {
         Ok(true)
     }
 
+    fn push_chunk(&mut self, mut data: Bytes) {
+        if data.is_empty() {
+            return;
+        }
+        debug_assert!(self.pending.is_empty());
+        if self.buf.is_empty() {
+            // Keep source chunks shared until parsing has checked the limits.
+            self.buf = data;
+            return;
+        }
+
+        // Join only a bounded prefix to an incomplete header or delimiter.
+        // Once the buffer empties, the remaining source data can be adopted
+        // whole, without splitting large field bodies into small copies.
+        let append_len = data.len().min(16 * 1024);
+        let mut buf = std::mem::take(&mut self.buf)
+            .try_into_mut()
+            .unwrap_or_else(|bytes| BytesMut::from(bytes.as_ref()));
+        buf.extend_from_slice(&data.split_to(append_len));
+        self.buf = buf.freeze();
+        self.pending = data;
+    }
+
     pub fn read_exact(&mut self, size: usize) -> Option<Bytes> {
         if size <= self.buf.len() {
             self.header_search_start = 0;
-            Some(self.buf.split_to(size).freeze())
+            Some(self.buf.split_to(size))
         } else {
             None
         }
@@ -177,7 +208,7 @@ impl<'r> StreamBuffer<'r> {
         if let Some(idx) = memchr::memmem::find(haystack, pattern) {
             let end = self.header_search_start + idx + pattern.len();
             self.header_search_start = 0;
-            Some(self.buf.split_to(end).freeze())
+            Some(self.buf.split_to(end))
         } else {
             // A delimiter can straddle input chunks. Already searched bytes
             // need not be scanned again, except for this three-byte overlap.
@@ -261,7 +292,7 @@ impl<'r> StreamBuffer<'r> {
                 BoundaryMatch::Valid => {
                     self.boundary_padding_scanned = 0;
                     trace!("new field found at {}", idx);
-                    let bytes = self.buf.split_to(idx).freeze();
+                    let bytes = self.buf.split_to(idx);
 
                     // discard \r\n.
                     self.buf.advance(constants::CRLF.len());
@@ -273,7 +304,7 @@ impl<'r> StreamBuffer<'r> {
                         return Ok(None);
                     }
 
-                    return Ok(Some((false, self.buf.split_to(idx).freeze())));
+                    return Ok(Some((false, self.buf.split_to(idx))));
                 }
                 BoundaryMatch::Invalid => {
                     return Err(crate::Error::IncompleteStream);
@@ -294,7 +325,7 @@ impl<'r> StreamBuffer<'r> {
         if readable_len == 0 {
             Ok(None)
         } else {
-            Ok(Some((false, self.buf.split_to(readable_len).freeze())))
+            Ok(Some((false, self.buf.split_to(readable_len))))
         }
     }
 }
@@ -307,6 +338,8 @@ impl fmt::Debug for StreamBuffer<'_> {
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+
     use super::StreamBuffer;
 
     fn buffer() -> StreamBuffer<'static> {
@@ -322,14 +355,14 @@ mod tests {
         let headers = b"X-Test: value\r\n\r\n";
         for split in 0..=headers.len() {
             let mut buffer = buffer();
-            buffer.buf.extend_from_slice(&headers[..split]);
+            buffer.push_chunk(Bytes::copy_from_slice(&headers[..split]));
             let first = buffer.read_headers();
             if split == headers.len() {
                 assert_eq!(first.unwrap().as_ref(), headers);
             } else {
                 assert!(first.is_none());
-                buffer.buf.extend_from_slice(&headers[split..]);
-                buffer.buf.extend_from_slice(b"body");
+                buffer.push_chunk(Bytes::copy_from_slice(&headers[split..]));
+                buffer.push_chunk(Bytes::from_static(b"body"));
                 assert_eq!(buffer.read_headers().unwrap().as_ref(), headers);
                 assert_eq!(buffer.buf.as_ref(), b"body");
             }
@@ -341,7 +374,7 @@ mod tests {
         let headers = format!("X-Long: {}\r\n\r\n", "a".repeat(16 * 1024));
         let mut buffer = buffer();
         for (index, byte) in headers.bytes().enumerate() {
-            buffer.buf.extend_from_slice(&[byte]);
+            buffer.push_chunk(Bytes::copy_from_slice(&[byte]));
             let result = buffer.read_headers();
             if index + 1 == headers.len() {
                 assert_eq!(result.unwrap().as_ref(), headers.as_bytes());
@@ -360,7 +393,7 @@ mod tests {
             "X: y\r\n\r\n",
         ] {
             for byte in headers.bytes() {
-                buffer.buf.extend_from_slice(&[byte]);
+                buffer.push_chunk(Bytes::copy_from_slice(&[byte]));
                 if buffer.buf.len() == headers.len() {
                     assert_eq!(buffer.read_headers().unwrap().as_ref(), headers.as_bytes());
                 } else {
@@ -374,14 +407,14 @@ mod tests {
     fn header_search_resets_when_buffered_bytes_are_consumed() {
         for consumption in 0..3 {
             let mut buffer = buffer();
-            buffer.buf.extend_from_slice(b"          ");
+            buffer.push_chunk(Bytes::from_static(b"          "));
             assert!(buffer.read_headers().is_none());
             match consumption {
                 0 => assert_eq!(buffer.read_exact(10).unwrap().len(), 10),
                 1 => buffer.advance(10),
                 _ => assert!(!buffer.advance_past_transport_padding().unwrap()),
             }
-            buffer.buf.extend_from_slice(b"X: y\r\n\r\n");
+            buffer.push_chunk(Bytes::from_static(b"X: y\r\n\r\n"));
             assert_eq!(buffer.read_headers().unwrap().as_ref(), b"X: y\r\n\r\n");
         }
     }
