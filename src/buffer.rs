@@ -114,16 +114,16 @@ impl<'r> StreamBuffer<'r> {
         }
     }
 
-    pub fn poll_stream(&mut self, cx: &mut Context<'_>) -> Result<(), crate::Error> {
+    /// Returns whether the caller must wake if parsing still needs more input.
+    pub fn poll_stream(&mut self, cx: &mut Context<'_>) -> Result<bool, crate::Error> {
         if self.eof {
-            return Ok(());
+            return Ok(false);
         }
 
         if !self.pending.is_empty() {
             let data = std::mem::take(&mut self.pending);
             self.push_chunk(data);
-            cx.waker().wake_by_ref();
-            return Ok(());
+            return Ok(true);
         }
 
         // Empty chunks are valid, but an always-ready source must not keep
@@ -147,20 +147,18 @@ impl<'r> StreamBuffer<'r> {
                     }
 
                     self.push_chunk(data);
-                    cx.waker().wake_by_ref();
-                    return Ok(());
+                    return Ok(true);
                 }
                 Poll::Ready(Some(Err(err))) => return Err(err),
                 Poll::Ready(None) => {
                     self.eof = true;
-                    return Ok(());
+                    return Ok(false);
                 }
-                Poll::Pending => return Ok(()),
+                Poll::Pending => return Ok(false),
             }
         }
 
-        cx.waker().wake_by_ref();
-        Ok(())
+        Ok(true)
     }
 
     fn push_chunk(&mut self, mut data: Bytes) {

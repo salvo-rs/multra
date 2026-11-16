@@ -82,12 +82,17 @@ impl<'r> Field<'r> {
     }
 
     /// The field name found in the [`Content-Disposition`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition) header.
+    ///
+    /// Quoted values decode MIME quoted-pairs before matching field constraints.
     #[must_use]
     pub fn name(&self) -> Option<&str> {
         self.content_disposition.field_name.as_deref()
     }
 
     /// The file name found in the [`Content-Disposition`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Disposition) header.
+    ///
+    /// In quoted values, a backslash escapes the following character. Encode
+    /// literal backslashes as `\\` in the quoted header parameter.
     ///
     /// This is untrusted client input. It may contain directory components,
     /// absolute paths, or control characters, including characters produced by
@@ -145,9 +150,28 @@ impl<'r> Field<'r> {
     pub async fn bytes(self) -> crate::Result<Bytes> {
         let mut first_chunk: Option<Bytes> = None;
         let mut buf = BytesMut::new();
+        let mut chunks_since_yield = 0;
 
         let mut this = self;
         while let Some(bytes) = this.chunk().await? {
+            chunks_since_yield += 1;
+            if chunks_since_yield == 32 {
+                // A ready source need not provide executor cooperation itself.
+                // Bound the work of this aggregation future independently of
+                // the per-poll budget of the individual Field stream reads.
+                let mut yielded = false;
+                std::future::poll_fn(|cx| {
+                    if yielded {
+                        Poll::Ready(())
+                    } else {
+                        yielded = true;
+                        cx.waker().wake_by_ref();
+                        Poll::Pending
+                    }
+                })
+                .await;
+                chunks_since_yield = 0;
+            }
             if bytes.is_empty() {
                 continue;
             }
@@ -373,6 +397,7 @@ impl Stream for Field<'_> {
 
         let state = &mut *lock;
         let mut read_stream = false;
+        let mut needs_wake = false;
 
         loop {
             match state.buffer.read_field_data(
@@ -402,11 +427,17 @@ impl Stream for Field<'_> {
                 }
                 Ok(None) if !read_stream => {
                     read_stream = true;
-                    if let Err(err) = state.buffer.poll_stream(cx) {
-                        return Poll::Ready(Some(Err(err)));
+                    match state.buffer.poll_stream(cx) {
+                        Ok(wake) => needs_wake = wake,
+                        Err(err) => return Poll::Ready(Some(Err(err))),
                     }
                 }
-                Ok(None) => return Poll::Pending,
+                Ok(None) => {
+                    if needs_wake {
+                        cx.waker().wake_by_ref();
+                    }
+                    return Poll::Pending;
+                }
                 Err(err) => return Poll::Ready(Some(Err(err))),
             }
         }

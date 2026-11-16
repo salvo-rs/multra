@@ -45,5 +45,6 @@ Cargo.lock
 .halt.releez.yml
 /.idea
 /multer-rs.iml
+/.claude/worktrees/
 
 # End of https://www.gitignore.io/api/rust,macos
