@@ -115,3 +115,44 @@ async fn collected_chunk_survives_reading_later_fields() {
     drop(multipart);
     assert_eq!(retained, "keep this");
 }
+
+#[tokio::test]
+async fn large_chunks_after_partial_headers_preserve_all_fields() {
+    let mut opening = b"--X\r\nContent-Disposition: form-data; name=\"first\"\r\nX-Long: ".to_vec();
+    // A valid header larger than the coalescing prefix needs several rounds
+    // before the remaining source can be exposed as field data.
+    opening.resize(opening.len() + 48 * 1024, b'h');
+    opening.extend_from_slice(b"\r\n\r\n");
+    let mut data = opening.clone();
+    let payload = vec![b'x'; 128 * 1024];
+    data.extend_from_slice(&payload);
+    data.extend_from_slice(
+        b"\r\n--X\r\nContent-Disposition: form-data; name=\"second\"\r\n\r\nlast\r\n--X--\r\n",
+    );
+    let data = Bytes::from(data);
+    for split in [1, 4, opening.len() - 1, opening.len() + 1] {
+        for skip_first in [false, true] {
+            let source = stream::iter([
+                Ok::<_, Infallible>(data.slice(..split)),
+                Ok(data.slice(split..)),
+            ]);
+            let limits = SizeLimit::new()
+                .whole_stream(data.len() as u64)
+                .per_field(payload.len() as u64);
+            let mut multipart =
+                Multipart::with_constraints(source, "X", Constraints::new().size_limit(limits));
+            let first = multipart.next_field().await.unwrap().unwrap();
+            assert_eq!(first.name(), Some("first"));
+            if skip_first {
+                drop(first);
+            } else {
+                assert_eq!(first.bytes().await.unwrap().as_ref(), payload);
+            }
+            let second = multipart.next_field().await.unwrap().unwrap();
+            assert_eq!(second.name(), Some("second"));
+            assert_eq!(second.index(), 1);
+            assert_eq!(second.bytes().await.unwrap(), "last");
+            assert!(multipart.next_field().await.unwrap().is_none());
+        }
+    }
+}
