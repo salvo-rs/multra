@@ -173,14 +173,17 @@ fn decode_extended_value(bytes: &[u8]) -> Option<String> {
     let _language = parts.next()?;
     let encoded = parts.next()?;
 
-    let encoding = Encoding::for_label(charset.as_bytes())?;
     let decoded = decode_percent_bytes(encoded.as_bytes())?;
-    let (text, _, had_errors) = encoding.decode(&decoded);
-    if had_errors {
-        return None;
+    if charset.eq_ignore_ascii_case("iso-8859-1") {
+        // Header parameters use the declared charset, not the Web-compatible
+        // Windows-1252 alias used by encoding_rs for ISO-8859-1 labels.
+        return Some(decoded.into_iter().map(char::from).collect());
     }
 
-    Some(text.into_owned())
+    let encoding = Encoding::for_label(charset.as_bytes())?;
+    encoding
+        .decode_without_bom_handling_and_without_replacement(&decoded)
+        .map(Cow::into_owned)
 }
 
 impl ContentDispositionAttr {
