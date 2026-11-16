@@ -60,6 +60,7 @@ pub struct Field<'r> {
     headers: HeaderMap,
     content_disposition: ContentDisposition,
     content_type: Option<mime::Mime>,
+    content_type_charset: Option<String>,
     idx: usize,
 }
 
@@ -70,12 +71,19 @@ impl<'r> Field<'r> {
         idx: usize,
         content_disposition: ContentDisposition,
     ) -> Self {
-        let content_type = helpers::parse_content_type(&headers);
+        let (content_type, content_type_charset) =
+            helpers::parse_content_type(&headers).map_or((None, None), |parsed| {
+                (
+                    parsed.to_mime(),
+                    parsed.get_param("charset").map(str::to_owned),
+                )
+            });
         Field {
             state,
             headers,
             content_disposition,
             content_type,
+            content_type_charset,
             idx,
             done: false,
         }
@@ -104,6 +112,12 @@ impl<'r> Field<'r> {
     }
 
     /// Get the content type of the field.
+    ///
+    /// Returns `None` if the header is invalid or its parameters cannot be
+    /// represented faithfully by [`mime::Mime`], such as quoted values with
+    /// literal quotes, backslashes, or non-UTF-8 bytes. The original header
+    /// remains available through [`Self::headers`], and text decoding still
+    /// honors its charset.
     #[must_use]
     pub const fn content_type(&self) -> Option<&mime::Mime> {
         self.content_type.as_ref()
@@ -342,9 +356,9 @@ impl<'r> Field<'r> {
     /// Returns an error if the field cannot be read completely.
     pub async fn text_with_charset(self, default_encoding: &str) -> crate::Result<String> {
         let encoding_name = self
-            .content_type()
-            .and_then(|mime| mime.get_param(mime::CHARSET))
-            .map_or(default_encoding, |charset| charset.as_str());
+            .content_type_charset
+            .as_deref()
+            .unwrap_or(default_encoding);
 
         let encoding = Encoding::for_label(encoding_name.as_bytes()).unwrap_or(UTF_8);
         let bytes = self.bytes().await?;

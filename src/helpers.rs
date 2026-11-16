@@ -27,9 +27,8 @@ pub fn convert_raw_headers_to_header_map(raw_headers: &[Header<'_>]) -> crate::R
     Ok(headers)
 }
 
-pub fn parse_content_type(headers: &HeaderMap) -> Option<mime::Mime> {
+pub fn parse_content_type(headers: &HeaderMap) -> Option<crate::content_type::ContentType<'_>> {
     headers
         .get(header::CONTENT_TYPE)
-        .and_then(|val| val.to_str().ok())
-        .and_then(|val| val.parse::<mime::Mime>().ok())
+        .and_then(|val| crate::content_type::ContentType::parse_bytes(val.as_bytes()).ok())
 }
