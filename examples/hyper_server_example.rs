@@ -6,7 +6,7 @@ use futures_util::StreamExt;
 use http_body_util::{BodyStream, Full};
 use hyper::{Request, Response, StatusCode, body::Incoming, header::CONTENT_TYPE};
 // Import the multra types.
-use multra::{Constraints, Multipart, SizeLimit};
+use multra::{Constraints, Error, Multipart, SizeLimit};
 
 // A handler for incoming requests.
 async fn handle(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infallible> {
@@ -27,13 +27,41 @@ async fn handle(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, Infalli
 
     // Process the multipart e.g. you can store them in files.
     if let Err(err) = process_multipart(req.into_body(), boundary.unwrap()).await {
-        return Ok(Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Full::from(format!("INTERNAL SERVER ERROR: {err}")))
-            .unwrap());
+        return Ok(multipart_error_response(&err));
     }
 
     Ok(Response::new(Full::from("Success")))
+}
+
+fn multipart_error_response(error: &Error) -> Response<Full<Bytes>> {
+    let status = match error {
+        Error::FieldSizeExceeded { .. }
+        | Error::StreamSizeExceeded { .. }
+        | Error::PreambleSizeExceeded { .. }
+        | Error::HeadersSizeExceeded { .. }
+        | Error::BoundaryPaddingSizeExceeded { .. }
+        | Error::FieldCountExceeded { .. } => StatusCode::PAYLOAD_TOO_LARGE,
+        Error::UnknownField { .. }
+        | Error::IncompleteFieldData { .. }
+        | Error::IncompleteHeaders
+        | Error::ReadHeaderFailed(_)
+        | Error::DecodeHeaderName { .. }
+        | Error::DecodeHeaderValue { .. }
+        | Error::IncompleteStream
+        | Error::StreamReadFailed(_)
+        | Error::NoMultipart
+        | Error::DecodeContentType(_)
+        | Error::NoBoundary
+        | Error::InvalidBoundary { .. } => StatusCode::BAD_REQUEST,
+        #[cfg(feature = "json")]
+        Error::DecodeJson(_) => StatusCode::BAD_REQUEST,
+        // Lock failures and future, unclassified errors remain server errors.
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    Response::builder()
+        .status(status)
+        .body(Full::from(format!("{status}: {error}")))
+        .unwrap()
 }
 
 // Process the request body as multipart/form-data.
@@ -100,5 +128,61 @@ async fn main() {
                 eprintln!("server error: {e}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Error, StatusCode, multipart_error_response};
+
+    #[test]
+    fn malformed_and_unknown_fields_are_bad_requests() {
+        for error in [
+            Error::UnknownField {
+                field_name: Some("unknown".to_owned()),
+            },
+            Error::IncompleteFieldData {
+                field_name: Some("my_text_field".to_owned()),
+            },
+            Error::IncompleteHeaders,
+            Error::IncompleteStream,
+            Error::ReadHeaderFailed(httparse::Error::NewLine),
+            Error::StreamReadFailed(std::io::Error::other("request body failed").into()),
+        ] {
+            assert_eq!(
+                multipart_error_response(&error).status(),
+                StatusCode::BAD_REQUEST,
+                "{error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn configured_resource_limits_are_content_too_large() {
+        for error in [
+            Error::FieldSizeExceeded {
+                limit: 1,
+                field_name: Some("my_text_field".to_owned()),
+            },
+            Error::StreamSizeExceeded { limit: 1 },
+            Error::PreambleSizeExceeded { limit: 1 },
+            Error::HeadersSizeExceeded { limit: 1 },
+            Error::BoundaryPaddingSizeExceeded { limit: 1 },
+            Error::FieldCountExceeded { limit: 1 },
+        ] {
+            assert_eq!(
+                multipart_error_response(&error).status(),
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "{error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn internal_errors_remain_server_errors() {
+        assert_eq!(
+            multipart_error_response(&Error::LockFailure).status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 }
