@@ -19,6 +19,34 @@ fn str_stream(string: &'static str) -> impl Stream<Item = multra::Result<Bytes>>
 }
 
 #[tokio::test]
+async fn test_filename_percent_decoding_preserves_invalid_values() {
+    for (filename, expected) in [
+        ("report%FF.txt", "report%FF.txt"),
+        ("report%80.txt", "report%80.txt"),
+        ("report%C0%AF.txt", "report%C0%AF.txt"),
+        ("report%20%FF.txt", "report%20%FF.txt"),
+        ("file%+A.txt", "file%+A.txt"),
+        ("file%+0.txt", "file%+0.txt"),
+        ("file%GG.txt", "file%GG.txt"),
+        ("file%A.txt", "file%A.txt"),
+        ("file%.txt", "file%.txt"),
+        ("file%20name.txt", "file name.txt"),
+        ("%E4%BD%A0%E5%A5%BD.txt", "你好.txt"),
+        ("file%2520name.txt", "file%20name.txt"),
+    ] {
+        let data = format!(
+            "--B\r\nContent-Disposition: form-data; name=upload; filename=\"{filename}\"\r\n\r\nx\r\n--B--\r\n"
+        );
+        let source = stream::once(async move { Ok::<_, Infallible>(Bytes::from(data)) });
+        let mut multipart = Multipart::new(source, "B");
+        let field = multipart.next_field().await.unwrap().unwrap();
+        assert_eq!(field.file_name(), Some(expected), "filename: {filename}");
+        assert_eq!(field.text().await.unwrap(), "x");
+        assert!(multipart.next_field().await.unwrap().is_none());
+    }
+}
+
+#[tokio::test]
 async fn test_multipart_basic() {
     let data = "--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_text_field\"\r\n\r\nabcd\r\n--X-BOUNDARY\r\nContent-Disposition: form-data; name=\"my_file_field\"; filename=\"a-text-file.txt\"\r\nContent-Type: text/plain\r\n\r\nHello world\nHello\r\nWorld\rAgain\r\n--X-BOUNDARY--\r\n";
     let stream = str_stream(data);
