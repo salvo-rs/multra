@@ -6,7 +6,7 @@ use multra::{Constraints, Multipart};
 
 #[tokio::test]
 async fn repeated_headers_remain_visible_and_metadata_uses_the_last_value() {
-    let body = b"--B\r\nContent-Disposition: form-data; name=first; filename=first.txt\r\nContent-Disposition: form-data; name=last; filename=last.txt\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Type: text/plain; charset=windows-1252\r\nX-Repeated: first\r\nX-Repeated: last\r\n\r\ncaf\xe9\r\n--B--\r\n";
+    let body = b"--B\r\nContent-Disposition: form-data; name=first; filename=first.txt\r\nContent-Disposition: form-data; name=last; filename=last.txt\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Type: text/plain; charset=windows-1252\r\nX-Repeated: first\r\nX-Repeated: last\r\n\r\n\xe9\r\n--B--\r\n";
     for width in [1, 2, body.len()] {
         let chunks = body
             .chunks(width)
@@ -52,7 +52,7 @@ async fn repeated_headers_remain_visible_and_metadata_uses_the_last_value() {
                 .collect();
             assert_eq!(actual, expected);
         }
-        assert_eq!(field.text().await.unwrap(), "caf\u{e9}");
+        assert_eq!(field.text().await.unwrap(), "\u{e9}");
         assert!(multipart.next_field().await.unwrap().is_none());
     }
 }
