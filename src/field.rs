@@ -150,9 +150,28 @@ impl<'r> Field<'r> {
     pub async fn bytes(self) -> crate::Result<Bytes> {
         let mut first_chunk: Option<Bytes> = None;
         let mut buf = BytesMut::new();
+        let mut chunks_since_yield = 0;
 
         let mut this = self;
         while let Some(bytes) = this.chunk().await? {
+            chunks_since_yield += 1;
+            if chunks_since_yield == 32 {
+                // A ready source need not provide executor cooperation itself.
+                // Bound the work of this aggregation future independently of
+                // the per-poll budget of the individual Field stream reads.
+                let mut yielded = false;
+                std::future::poll_fn(|cx| {
+                    if yielded {
+                        Poll::Ready(())
+                    } else {
+                        yielded = true;
+                        cx.waker().wake_by_ref();
+                        Poll::Pending
+                    }
+                })
+                .await;
+                chunks_since_yield = 0;
+            }
             if bytes.is_empty() {
                 continue;
             }
