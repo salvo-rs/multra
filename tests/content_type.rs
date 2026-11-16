@@ -86,7 +86,29 @@ async fn unrepresentable_mime_parameters_preserve_raw_headers_and_charset() {
             Multipart::new(stream::iter([Ok::<_, Infallible>(Bytes::from(body))]), "B");
         let field = parser.next_field().await.unwrap().unwrap();
         assert!(field.content_type().is_none(), "{content_type:?}");
-        assert_eq!(field.headers()["content-type"], content_type);
+        assert_eq!(
+            field.headers()["content-type"].as_bytes(),
+            content_type.as_bytes()
+        );
         assert_eq!(field.text().await.unwrap(), "\u{e9}");
     }
+}
+
+#[tokio::test]
+async fn utf8_quoted_parameters_do_not_hide_the_part_charset() {
+    let content_type = "text/plain; note=\"\u{e9}\"; charset=windows-1252";
+    let mut parser = Multipart::new(
+        stream::iter([Ok::<_, Infallible>(Bytes::from(data(content_type)))]),
+        "B",
+    );
+    let field = parser.next_field().await.unwrap().unwrap();
+    assert_eq!(
+        field.content_type().unwrap().get_param("note").unwrap(),
+        "\u{e9}"
+    );
+    assert_eq!(
+        field.headers()["content-type"].as_bytes(),
+        content_type.as_bytes()
+    );
+    assert_eq!(field.text().await.unwrap(), "\u{e9}");
 }

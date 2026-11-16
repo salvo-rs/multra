@@ -30,6 +30,6 @@ pub fn convert_raw_headers_to_header_map(raw_headers: &[Header<'_>]) -> crate::R
 pub fn parse_content_type(headers: &HeaderMap) -> Option<crate::content_type::ContentType<'_>> {
     headers
         .get(header::CONTENT_TYPE)
-        .and_then(|val| val.to_str().ok())
+        .and_then(|val| std::str::from_utf8(val.as_bytes()).ok())
         .and_then(|val| crate::content_type::ContentType::parse(val).ok())
 }
