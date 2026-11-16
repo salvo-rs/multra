@@ -107,6 +107,7 @@ pub enum StreamingStage {
     ReadingClosingTransportPadding,
     ReadingFieldHeaders,
     ReadingFieldData,
+    ReadingEpilogue,
     Eof,
 }
 
@@ -538,10 +539,17 @@ impl<'r> Multipart<'r> {
 
             if &crlf_bytes[..] == constants::CRLF.as_bytes() {
                 if closing {
-                    state.stage = StreamingStage::Eof;
-                    return Poll::Ready(Ok(None));
+                    state.stage = if state.constraints.size_limit.whole_stream == u64::MAX {
+                        StreamingStage::Eof
+                    } else {
+                        StreamingStage::ReadingEpilogue
+                    };
+                    if state.stage == StreamingStage::Eof {
+                        return Poll::Ready(Ok(None));
+                    }
+                } else {
+                    state.stage = StreamingStage::ReadingFieldHeaders;
                 }
-                state.stage = StreamingStage::ReadingFieldHeaders;
             } else {
                 return Poll::Ready(Err(Error::IncompleteStream));
             }
@@ -628,6 +636,17 @@ impl<'r> Multipart<'r> {
             drop(lock); // The lock will be dropped anyway, but let's be explicit.
             let field = Field::new(self.state.clone(), headers, field_idx, content_disposition);
             return Poll::Ready(Ok(Some(field)));
+        }
+
+        if state.stage == StreamingStage::ReadingEpilogue {
+            // These bytes were counted when pulled from the source. Discard
+            // them before requesting another chunk so epilogue memory stays
+            // bounded by one upstream chunk rather than its total length.
+            state.buffer.buf.clear();
+            if state.buffer.eof {
+                state.stage = StreamingStage::Eof;
+                return Poll::Ready(Ok(None));
+            }
         }
 
         Poll::Pending
