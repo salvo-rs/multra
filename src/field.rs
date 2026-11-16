@@ -397,6 +397,7 @@ impl Stream for Field<'_> {
 
         let state = &mut *lock;
         let mut read_stream = false;
+        let mut needs_wake = false;
 
         loop {
             match state.buffer.read_field_data(
@@ -426,11 +427,17 @@ impl Stream for Field<'_> {
                 }
                 Ok(None) if !read_stream => {
                     read_stream = true;
-                    if let Err(err) = state.buffer.poll_stream(cx) {
-                        return Poll::Ready(Some(Err(err)));
+                    match state.buffer.poll_stream(cx) {
+                        Ok(wake) => needs_wake = wake,
+                        Err(err) => return Poll::Ready(Some(Err(err))),
                     }
                 }
-                Ok(None) => return Poll::Pending,
+                Ok(None) => {
+                    if needs_wake {
+                        cx.waker().wake_by_ref();
+                    }
+                    return Poll::Pending;
+                }
                 Err(err) => return Poll::Ready(Some(Err(err))),
             }
         }
