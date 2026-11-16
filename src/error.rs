@@ -65,6 +65,9 @@ pub enum Error {
     /// Failed to convert the `Content-Type` to [`mime::Mime`] type.
     DecodeContentType(mime::FromStrError),
 
+    /// The `Content-Type` header does not follow media-type parameter syntax.
+    InvalidContentType { content_type: String },
+
     /// No boundary found in `Content-Type` header.
     NoBoundary,
 
@@ -119,6 +122,9 @@ impl Display for Error {
             Self::ReadHeaderFailed(_) => write!(f, "failed to read headers"),
             Self::StreamReadFailed(_) => write!(f, "failed to read stream"),
             Self::DecodeContentType(_) => write!(f, "failed to decode Content-Type"),
+            Self::InvalidContentType { content_type } => {
+                write!(f, "invalid Content-Type syntax: {content_type:?}")
+            }
             Self::IncompleteHeaders => write!(f, "failed to read field complete headers"),
             Self::IncompleteStream => write!(f, "incomplete multipart stream"),
             Self::LockFailure => write!(f, "failed to lock multipart state"),
@@ -156,6 +162,7 @@ impl std::error::Error for Error {
             | Self::LockFailure
             | Self::NoMultipart
             | Self::NoBoundary
+            | Self::InvalidContentType { .. }
             | Self::InvalidBoundary { .. } => None,
         }
     }
@@ -226,6 +233,12 @@ impl PartialEq for Error {
             (Self::DecodeContentType(left), Self::DecodeContentType(right)) => {
                 left.to_string() == right.to_string()
             }
+            (
+                Self::InvalidContentType { content_type: left },
+                Self::InvalidContentType {
+                    content_type: right,
+                },
+            ) => left == right,
             (
                 Self::InvalidBoundary { boundary: left },
                 Self::InvalidBoundary { boundary: right },

@@ -147,6 +147,7 @@ mod buffer;
 mod constants;
 mod constraints;
 mod content_disposition;
+mod content_type;
 mod error;
 mod field;
 mod helpers;
@@ -208,19 +209,17 @@ fn validate_boundary(boundary: &str) -> Result<()> {
 /// Returns an error if the value is not a valid `multipart/form-data` content
 /// type, has no boundary parameter, or contains an invalid boundary.
 pub fn parse_boundary<T: AsRef<str>>(content_type: T) -> Result<String> {
-    let m = content_type
-        .as_ref()
-        .parse::<mime::Mime>()
-        .map_err(Error::DecodeContentType)?;
+    let parsed = content_type::ContentType::parse(content_type.as_ref())?;
+    let m = &parsed.essence;
 
     if !(m.type_() == mime::MULTIPART && m.subtype() == mime::FORM_DATA) {
         return Err(Error::NoMultipart);
     }
 
-    let boundary = m.get_param(mime::BOUNDARY).ok_or(Error::NoBoundary)?;
-    validate_boundary(boundary.as_str())?;
+    let boundary = parsed.get_param("boundary").ok_or(Error::NoBoundary)?;
+    validate_boundary(boundary)?;
 
-    Ok(boundary.as_str().to_owned())
+    Ok(boundary.to_owned())
 }
 
 #[cfg(test)]
