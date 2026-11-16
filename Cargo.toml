@@ -52,6 +52,10 @@ name = "parse_async_read"
 path = "examples/parse_async_read.rs"
 required-features = ["tokio-io"]
 
+[[example]]
+name = "hyper_server_example"
+test = true
+
 [[bench]]
 name = "multipart"
 harness = false

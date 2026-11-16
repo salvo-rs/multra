@@ -112,9 +112,10 @@ impl<'r> StreamBuffer<'r> {
         }
     }
 
-    pub fn poll_stream(&mut self, cx: &mut Context<'_>) -> Result<(), crate::Error> {
+    /// Returns whether the caller must wake if parsing still needs more input.
+    pub fn poll_stream(&mut self, cx: &mut Context<'_>) -> Result<bool, crate::Error> {
         if self.eof {
-            return Ok(());
+            return Ok(false);
         }
 
         // Empty chunks are valid, but an always-ready source must not keep
@@ -138,20 +139,18 @@ impl<'r> StreamBuffer<'r> {
                     }
 
                     self.buf.extend_from_slice(&data);
-                    cx.waker().wake_by_ref();
-                    return Ok(());
+                    return Ok(true);
                 }
                 Poll::Ready(Some(Err(err))) => return Err(err),
                 Poll::Ready(None) => {
                     self.eof = true;
-                    return Ok(());
+                    return Ok(false);
                 }
-                Poll::Pending => return Ok(()),
+                Poll::Pending => return Ok(false),
             }
         }
 
-        cx.waker().wake_by_ref();
-        Ok(())
+        Ok(true)
     }
 
     pub fn read_exact(&mut self, size: usize) -> Option<Bytes> {
