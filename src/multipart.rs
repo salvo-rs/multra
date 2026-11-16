@@ -378,18 +378,22 @@ impl<'r> Multipart<'r> {
             return Poll::Ready(Err(Error::LockFailure));
         };
         let buffered_len = lock.buffer.buf.len();
-        lock.buffer.poll_stream(cx)?;
+        let needs_wake = lock.buffer.poll_stream(cx)?;
         let has_new_input = lock.buffer.eof || lock.buffer.buf.len() != buffered_len;
         drop(lock);
 
         // Read at most one nonempty chunk per poll. New data schedules another
         // poll if it is still insufficient; an upstream Pending registers its
         // own waker. EOF must be parsed immediately because it does not wake us.
-        if has_new_input {
+        let result = if has_new_input {
             self.poll_next_field_from_buffer()
         } else {
             Poll::Pending
+        };
+        if result.is_pending() && needs_wake {
+            cx.waker().wake_by_ref();
         }
+        result
     }
 
     #[allow(clippy::too_many_lines)] // The stages form one explicit parser state machine.
