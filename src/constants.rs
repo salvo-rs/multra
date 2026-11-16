@@ -120,6 +120,9 @@ fn decode_percent_bytes(bytes: &[u8]) -> Option<Vec<u8>> {
         if bytes[index] == b'%' {
             let hi = bytes.get(index + 1)?;
             let lo = bytes.get(index + 2)?;
+            if !hi.is_ascii_hexdigit() || !lo.is_ascii_hexdigit() {
+                return None;
+            }
             let hex = [*hi, *lo];
             decoded.push(u8::from_str_radix(std::str::from_utf8(&hex).ok()?, 16).ok()?);
             index += 3;
@@ -154,8 +157,9 @@ fn decode_value(
     if decode_percent_encoding
         && value.contains('%')
         && let Some(decoded) = decode_percent_bytes(value.as_bytes())
+        && let Ok(decoded_value) = String::from_utf8(decoded)
     {
-        return String::from_utf8(decoded).ok().map(Cow::Owned);
+        return Some(Cow::Owned(decoded_value));
     }
 
     Some(value)
